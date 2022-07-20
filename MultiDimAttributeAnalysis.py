@@ -13,7 +13,7 @@ from datetime import datetime
 
 # https://scikit-learn.org/stable/auto_examples/manifold/plot_mds.html 
 
-def similarityCalculation(excelFile: str, sheetName: str, dims: int):
+def similarityCalculation(excelFile: str, sheetName: str, attribute: str, dims: int):
 
     '''
     Perform the dimensionality reduction
@@ -46,8 +46,7 @@ def similarityCalculation(excelFile: str, sheetName: str, dims: int):
     # get the category information
     categoriesRaw = [d for d in df[start::, :start]]
     categoriesArray = np.array(categoriesRaw)
-    categoriesHeader = list(df[start-1, 0:start])
-    categoriesHeader.remove(False)
+    categoriesHeader = [c.replace(" ", "") for c in list(df[start-1, 0:start]) if type(c) == str]
 
     print(f"{len(categoriesHeader)} categories analysed")
 
@@ -80,7 +79,7 @@ def similarityCalculation(excelFile: str, sheetName: str, dims: int):
     dir = os.path.dirname(excelFile)
     now = datetime.now()
     dt_string = now.strftime("%Y%m%d_%H%M%S")
-    csvPath = f"{dir}\\{sheetName}_{dims}_{dt_string}.csv"
+    csvPath = f"{dir}\\{sheetName}_{dims}_{attribute}_{dt_string}.csv"
     posdf.to_csv(csvPath)
 
     return csvPath
@@ -123,6 +122,7 @@ def mdsVisualisation(latestcsv: str, attribute: str, dims: int):
         fig.write_html(htmlLink)
 
     print(f"Displaying plot")
+    print(f"Plot saved at {htmlLink}")
     # convert the plotly figure into raw html and display
     
     os.system(f"start {htmlLink}")
@@ -136,9 +136,13 @@ def multiDimAnalysis(excelFile: str, sheetName: str, attribute: str, dims: int):
 
     print("---Beginning multi dimensional analysis---")
     print(f"Arguments\nworkbook: {workbook}, worksheet: {worksheet}, attribute: {attribute}, dims: {dims}")
-    csvFiles = sorted(glob(f"{os.path.dirname(excelFile)}\\{sheetName}_{dims}_*.csv"))
+
+    # remove all spaces from the attribute name. Makes things ways simpler...
+    attribute = attribute.replace(" ", "")
+
+    csvFiles = sorted(glob(f"{os.path.dirname(excelFile)}\\{sheetName}_{attribute}_{dims}_*.csv"))
     if len(csvFiles) == 0:
-        newCSVFile = similarityCalculation(excelFile, sheetName, dims)
+        newCSVFile = similarityCalculation(excelFile, sheetName, attribute, dims)
     else:
         newCSVFile = csvFiles[-1]
 
@@ -153,8 +157,8 @@ if __name__ == "__main__":
         multiDimAnalysis(str(workbook), str(worksheet), str(attribute), int(dims))
     else:
         workbook = "C:\\Users\\ResheJ\\Downloads\\WorkBook-Blankv5c.xlsm"
-        worksheet = "SimilarityScoreIdentities"
-        attribute = "Department"
+        worksheet = "SimilarityScoreAttributes"
+        attribute = "Management Level"
         dim = 3
         
         multiDimAnalysis(workbook, worksheet, attribute, dim)
