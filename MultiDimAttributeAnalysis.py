@@ -136,8 +136,8 @@ def mdsVisualisation(latestcsv: str, attribute: str, dims: int):
         sheetName = latestcsv.split("\\")[-1].split("_")[0]
         plotTitle = f"From {sheetName}, {dims}d MDS of {len(posdf)} points with {attribute} classificaiton"
         if dims == 2:
-            otherData = list(posdf.columns)[3:].remove(attribute)
-            fig = px.scatter(posdf, x = "Dim0", y = "Dim1", size = option, color=attribute, title=plotTitle)
+            otherData = list(posdf.columns)[3:]
+            fig = px.scatter(posdf, x = "Dim0", y = "Dim1", size = option, color=attribute, title=plotTitle, hover_name=attribute, hover_data=otherData)
 
         elif dims == 3:
             otherData = list(posdf.columns)[4:]
@@ -175,8 +175,8 @@ if __name__ == "__main__":
         multiDimAnalysis(str(workbook), str(worksheet), str(attribute), int(dims))
     else:
         workbook = "C:\\Users\\ResheJ\\Downloads\\WorkBook-Blankv5c.xlsm"
-        worksheet = "SimilarityScoreIdentities"
+        worksheet = "SimilarityScoreAttributes"
         attribute = "Job Profile"
-        dim = 3
+        dim = 2
         
         multiDimAnalysis(workbook, worksheet, attribute, dim)
