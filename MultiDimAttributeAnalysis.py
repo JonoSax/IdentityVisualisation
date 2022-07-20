@@ -10,8 +10,6 @@ from glob import glob
 import plotly.express as px
 import os
 from datetime import datetime
-import subprocess
-
 
 # https://scikit-learn.org/stable/auto_examples/manifold/plot_mds.html 
 
@@ -107,14 +105,22 @@ def mdsVisualisation(latestcsv: str, attribute: str, dims: int):
         option = None
 
     print(f"using {latestcsv} to load data")
+
+    sheetName = latestcsv.split("\\")[-1].split("_")[0]
+    plotTitle = f"From {sheetName}, {dims}d MDS of {len(posdf)} points with {attribute} classificaiton"
     if dims == 2:
-        fig = px.scatter(posdf, x = "Dim0", y = "Dim1", size = option, color=attribute)
+        fig = px.scatter(posdf, x = "Dim0", y = "Dim1", size = option, color=attribute, title=plotTitle)
+
     elif dims == 3:
-        fig = px.scatter_3d(posdf, x = "Dim0", y = "Dim1", z = "Dim2", size = option, color=attribute)
+        fig = px.scatter_3d(posdf, x = "Dim0", y = "Dim1", z = "Dim2", size = option, color=attribute, title=plotTitle)
 
     print(f"Displaying plot")
-    fig.show()
 
+    # convert the plotly figure into raw html and display
+    htmlLink = latestcsv.replace(".csv", ".html")
+    fig.write_html(htmlLink)
+    os.system(f"start {htmlLink}")
+    
 def multiDimAnalysis(excelFile: str, sheetName: str, attribute: str, dims: int):
 
     '''
@@ -122,6 +128,8 @@ def multiDimAnalysis(excelFile: str, sheetName: str, attribute: str, dims: int):
     If there is a file which already exists, just visualise otherwise create the new file
     '''
 
+    print("---Beginning multi dimensional analysis---")
+    print(f"Arguments\nworkbook: {workbook}, worksheet: {worksheet}, attribute: {attribute}, dims: {dims}")
     csvFiles = sorted(glob(f"{os.path.dirname(excelFile)}\\{sheetName}_{dims}_*.csv"))
     if len(csvFiles) == 0:
         newCSVFile = similarityCalculation(excelFile, sheetName, dims)
@@ -132,13 +140,15 @@ def multiDimAnalysis(excelFile: str, sheetName: str, attribute: str, dims: int):
 
 if __name__ == "__main__":
    
+    print("Loading....")
     if len(sys.argv) == 5:
         _, workbook, worksheet, attribute, dims = sys.argv
-        print(f"Arguments\nworkbook: {workbook}, worksheet: {worksheet}, attribute: {attribute}, dims: {dims}")
+
         multiDimAnalysis(str(workbook), str(worksheet), str(attribute), int(dims))
     else:
         workbook = "C:\\Users\\ResheJ\\Downloads\\WorkBook-Blankv5c.xlsm"
-        worksheet = "SimilarityScoreAttributes"
+        worksheet = "SimilarityScoreIdentities"
         attribute = "Department"
         dim = 3
+        
         multiDimAnalysis(workbook, worksheet, attribute, dim)
