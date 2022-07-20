@@ -94,31 +94,37 @@ def mdsVisualisation(latestcsv: str, attribute: str, dims: int):
     # get the most recently calculated positional information based on the relevant attribute, 
     # dimension and sheet data
 
-    posdf = pd.read_csv(latestcsv)
-
     print(f"---{dims}d plotting beginning---")
+    htmlLink = latestcsv.replace(".csv", ".html")
 
-    if "Count" in posdf.columns and False:
-        option = "Count"
-        posdf["Count"] = posdf["Count"].astype(int)
-    else:
-        option = None
+    # if the html plot doesn't exist, create the html file else just open it
+    if not os.path.exists(htmlLink):
 
-    print(f"using {latestcsv} to load data")
+        print("Creating html of plot")
 
-    sheetName = latestcsv.split("\\")[-1].split("_")[0]
-    plotTitle = f"From {sheetName}, {dims}d MDS of {len(posdf)} points with {attribute} classificaiton"
-    if dims == 2:
-        fig = px.scatter(posdf, x = "Dim0", y = "Dim1", size = option, color=attribute, title=plotTitle)
+        posdf = pd.read_csv(latestcsv)
 
-    elif dims == 3:
-        fig = px.scatter_3d(posdf, x = "Dim0", y = "Dim1", z = "Dim2", size = option, color=attribute, title=plotTitle)
+        if "Count" in posdf.columns and False:
+            option = "Count"
+            posdf["Count"] = posdf["Count"].astype(int)
+        else:
+            option = None
+
+        print(f"using {latestcsv} to load data")
+
+        sheetName = latestcsv.split("\\")[-1].split("_")[0]
+        plotTitle = f"From {sheetName}, {dims}d MDS of {len(posdf)} points with {attribute} classificaiton"
+        if dims == 2:
+            fig = px.scatter(posdf, x = "Dim0", y = "Dim1", size = option, color=attribute, title=plotTitle)
+
+        elif dims == 3:
+            fig = px.scatter_3d(posdf, x = "Dim0", y = "Dim1", z = "Dim2", size = option, color=attribute, title=plotTitle)
+
+        fig.write_html(htmlLink)
 
     print(f"Displaying plot")
-
     # convert the plotly figure into raw html and display
-    htmlLink = latestcsv.replace(".csv", ".html")
-    fig.write_html(htmlLink)
+    
     os.system(f"start {htmlLink}")
     
 def multiDimAnalysis(excelFile: str, sheetName: str, attribute: str, dims: int):
