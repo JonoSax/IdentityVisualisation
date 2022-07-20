@@ -26,7 +26,7 @@ def similarityCalculation(excelFile: str, sheetName: str, attribute: str, dims: 
     df = pd.read_excel(excelFile, sheet_name=sheetName, header=None).fillna(False).to_numpy()
     # df = pd.read_excel(excelFile, sheet_name='SimilarityScoreIdentities').fillna(False).to_numpy()
 
-    print("Excel file successfullly loaded")
+    print("Excel file successfully loaded")
 
     # find which row/column the data start
     start = min(np.where(df[:, 0]!=False)[0]) + 1
@@ -99,6 +99,7 @@ def similarityCalculation(excelFile: str, sheetName: str, attribute: str, dims: 
     else:
         # return the most recently created version
         csvPath = csvFiles[-1]
+        print(f"Existing csv: {csvPath}")
 
     return csvPath
 
@@ -135,16 +136,18 @@ def mdsVisualisation(latestcsv: str, attribute: str, dims: int):
         sheetName = latestcsv.split("\\")[-1].split("_")[0]
         plotTitle = f"From {sheetName}, {dims}d MDS of {len(posdf)} points with {attribute} classificaiton"
         if dims == 2:
+            otherData = list(posdf.columns)[3:].remove(attribute)
             fig = px.scatter(posdf, x = "Dim0", y = "Dim1", size = option, color=attribute, title=plotTitle)
 
         elif dims == 3:
-            fig = px.scatter_3d(posdf, x = "Dim0", y = "Dim1", z = "Dim2", size = option, color=attribute, title=plotTitle)
+            otherData = list(posdf.columns)[4:]
+            fig = px.scatter_3d(posdf, x = "Dim0", y = "Dim1", z = "Dim2", size = option, color=attribute, title=plotTitle, hover_name=attribute, hover_data=otherData)
 
         # convert the plotly figure into raw html and display
         fig.write_html(htmlLink)
         print(f"Plot saved at {htmlLink}")
     
-    print(f"Displaying plot")
+    print(f"Displaying plot from {htmlLink}")
     os.system(f"start {htmlLink}")
     
 def multiDimAnalysis(excelFile: str, sheetName: str, attribute: str, dims: int):
