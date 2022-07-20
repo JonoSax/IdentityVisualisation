@@ -23,64 +23,82 @@ def similarityCalculation(excelFile: str, sheetName: str, attribute: str, dims: 
 
     seed = np.random.RandomState(seed=3)
 
-    '''
-    # get the most recent similarity score calculated
-    csvPath = "C:\\Users\\ResheJ\\Downloads\\"
-    csvFile = sorted(glob(csvPath + "SimilarityScore*.csv"))[-1]
-    df = pd.read_csv(excelFile).fillna(1).to_numpy()
-    '''
-
     df = pd.read_excel(excelFile, sheet_name=sheetName, header=None).fillna(False).to_numpy()
     # df = pd.read_excel(excelFile, sheet_name='SimilarityScoreIdentities').fillna(False).to_numpy()
 
     print("Excel file successfullly loaded")
 
-    # Get only the data, not the headers
+    # find which row/column the data start
     start = min(np.where(df[:, 0]!=False)[0]) + 1
-    data = df[start::, start::]
-    data[np.where(data==False)] = 1
-    data = data.astype(np.float64)
-
-    print(f"{len(data)} attributes analysed")
 
     # get the category information
     categoriesRaw = [d for d in df[start::, :start]]
     categoriesArray = np.array(categoriesRaw)
     categoriesHeader = [c.replace(" ", "") for c in list(df[start-1, 0:start]) if type(c) == str]
+    joinedCategoryHeaders =  '_'.join(sorted(categoriesHeader))
 
-    print(f"{len(categoriesHeader)} categories analysed")
+    print(f"{len(categoriesHeader)} categories extracted")
 
     # remove the categories which are empty (ie false)
     categoriesArray = [categoriesArray[:, n] for n in range(categoriesArray.shape[1]) if (categoriesArray[:, n]  != False).all()]
     categories = np.transpose(np.array(categoriesArray))
 
-    # create the pre-computed similartiies matrix
-    similarities = data * data.transpose()
+    # check if the data has already been calculated
+    if "attributes" in sheetName.lower():
 
-    # perform dimensionality reduction
-    print("Starting mds fit")
+        # attributes sheet must contain all info
+        csvFiles = sorted(glob(f"{os.path.dirname(excelFile)}\\{sheetName}_{dims}*{joinedCategoryHeaders}*.csv"))
+    
+    elif "identities" in sheetName.lower():
+        # identities only need the attribute to be in the name somewhere, not the whole match
+        csvFiles = sorted(glob(f"{os.path.dirname(excelFile)}\\{sheetName}_{dims}*{attribute}*.csv"))
 
-    mds = manifold.MDS(
-        n_components=dims,
-        max_iter=3000,
-        eps=1e-6,
-        random_state=seed,
-        dissimilarity="precomputed",
-        n_jobs=1, 
-    )
-    pos = mds.fit(1-similarities).embedding_
+    else: 
+        print("No relevant data found")
+        csvFiles = []
 
-    # get n-dimension labels
-    dimNames = [f"Dim{n}" for n in range(len(pos[0]))]
+    # Get only the data, not the headers
+    data = df[start::, start::]
+    data[np.where(data==False)] = 1
+    data = data.astype(np.float64)
 
-    posdf = pd.DataFrame(np.hstack([pos, categories]), columns = [*dimNames, *categoriesHeader])
+    print(f"{len(data)} data extracted")
 
-    # save the calculated positional dataframe to the same directory as the original excel file
-    dir = os.path.dirname(excelFile)
-    now = datetime.now()
-    dt_string = now.strftime("%Y%m%d_%H%M%S")
-    csvPath = f"{dir}\\{sheetName}_{dims}_{attribute}_{dt_string}.csv"
-    posdf.to_csv(csvPath)
+    if len(csvFiles) == 0:
+
+        print("New csv being created")
+
+        # create the pre-computed similartiies matrix
+        similarities = data * data.transpose()
+
+        # perform dimensionality reduction
+        print("Starting mds fit")
+
+        mds = manifold.MDS( 
+            n_components=dims, 
+            max_iter=3000,
+            eps=1e-6,
+            random_state=seed,
+            dissimilarity="precomputed",
+            n_jobs=1, 
+        )
+        pos = mds.fit(1-similarities).embedding_
+
+        # get n-dimension labels
+        dimNames = [f"Dim{n}" for n in range(len(pos[0]))]
+
+        posdf = pd.DataFrame(np.hstack([pos, categories]), columns = [*dimNames, *categoriesHeader])
+
+        # save the calculated positional dataframe to the same directory as the original excel file
+        dir = os.path.dirname(excelFile)
+        now = datetime.now()
+        dt_string = now.strftime("%Y%m%d_%H%M%S")
+        csvPath = f"{dir}\\{sheetName}_{dims}_{joinedCategoryHeaders}_{dt_string}.csv"
+        posdf.to_csv(csvPath)
+
+    else:
+        # return the most recently created version
+        csvPath = csvFiles[-1]
 
     return csvPath
 
@@ -96,13 +114,16 @@ def mdsVisualisation(latestcsv: str, attribute: str, dims: int):
     print(f"---{dims}d plotting beginning---")
     htmlLink = latestcsv.replace(".csv", ".html")
 
-    # if the html plot doesn't exist, create the html file else just open it
+    htmlLink = htmlLink.replace(attribute, f"#{attribute}#")\
+
     if not os.path.exists(htmlLink):
 
-        print("Creating html of plot")
-
         posdf = pd.read_csv(latestcsv)
+        if attribute not in posdf.columns: 
+            print(f"Attribute {attribute} not in {latestcsv}")
+            return
 
+        # set the size of the dots to the number of identity occurences (currently deactivated)
         if "Count" in posdf.columns and False:
             option = "Count"
             posdf["Count"] = posdf["Count"].astype(int)
@@ -119,12 +140,11 @@ def mdsVisualisation(latestcsv: str, attribute: str, dims: int):
         elif dims == 3:
             fig = px.scatter_3d(posdf, x = "Dim0", y = "Dim1", z = "Dim2", size = option, color=attribute, title=plotTitle)
 
+        # convert the plotly figure into raw html and display
         fig.write_html(htmlLink)
-
-    print(f"Displaying plot")
-    print(f"Plot saved at {htmlLink}")
-    # convert the plotly figure into raw html and display
+        print(f"Plot saved at {htmlLink}")
     
+    print(f"Displaying plot")
     os.system(f"start {htmlLink}")
     
 def multiDimAnalysis(excelFile: str, sheetName: str, attribute: str, dims: int):
@@ -140,12 +160,7 @@ def multiDimAnalysis(excelFile: str, sheetName: str, attribute: str, dims: int):
     # remove all spaces from the attribute name. Makes things ways simpler...
     attribute = attribute.replace(" ", "")
 
-    csvFiles = sorted(glob(f"{os.path.dirname(excelFile)}\\{sheetName}_{attribute}_{dims}_*.csv"))
-    if len(csvFiles) == 0:
-        newCSVFile = similarityCalculation(excelFile, sheetName, attribute, dims)
-    else:
-        newCSVFile = csvFiles[-1]
-
+    newCSVFile = similarityCalculation(excelFile, sheetName, attribute, dims)
     mdsVisualisation(newCSVFile, attribute, dims)            
 
 if __name__ == "__main__":
@@ -157,8 +172,8 @@ if __name__ == "__main__":
         multiDimAnalysis(str(workbook), str(worksheet), str(attribute), int(dims))
     else:
         workbook = "C:\\Users\\ResheJ\\Downloads\\WorkBook-Blankv5c.xlsm"
-        worksheet = "SimilarityScoreAttributes"
-        attribute = "Management Level"
+        worksheet = "SimilarityScoreIdentities"
+        attribute = "Job Profile"
         dim = 3
         
         multiDimAnalysis(workbook, worksheet, attribute, dim)
