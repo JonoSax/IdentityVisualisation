@@ -121,8 +121,8 @@ def mdsVisualisation(latestcsv: str, attribute: str, dims: int):
 
         posdf = pd.read_csv(latestcsv)
         if attribute not in posdf.columns: 
-            print(f"Attribute {attribute} not in {latestcsv}")
-            return
+            print(f"Attribute {attribute} not in {latestcsv}, selecting {posdf.columns[-1]}")
+            attribute = posdf.columns[-1]
 
         # set the size of the dots to the number of identity occurences (currently deactivated)
         if "Count" in posdf.columns and False:
