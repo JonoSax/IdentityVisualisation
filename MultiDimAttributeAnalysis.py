@@ -47,7 +47,7 @@ def similarityCalculation(excelFile: str, sheetName: str, dims: int):
     categoriesArray = np.array(categoriesRaw)
     # categoriesHeader = [c.replace(" ", "") for c in list(posdf[start-1, 0:start]) if type(c) == str]
     categoriesHeader = [c.replace(" ", "") for c in list(posdf[start-1, 0:start]) if type(c) == str]
-    joinedCategoryHeaders =  '_'.join(categoriesHeader)
+    joinedCategoryHeaders =  '_'.join(sorted(categoriesHeader))
 
     print(f"     {len(categoriesHeader)} categories extracted")
 
@@ -58,18 +58,17 @@ def similarityCalculation(excelFile: str, sheetName: str, dims: int):
     # check if the data has already been calculated
     if "attributes" in sheetName.lower():
 
-        # attributes sheet must contain all info
-        csvFiles = sorted(glob(f"{os.path.dirname(excelFile)}\\{sheetName}_{dims}*{joinedCategoryHeaders}*.csv"))
-        print(f"     {len(csvFiles)} relevant attribute files found")
+        # the combination of attribute are important for attribute searches
+        csvName = f"{sheetName}_{dims}_{joinedCategoryHeaders}"
 
     elif "identities" in sheetName.lower():
-        # identities contain all information, just check the dims are calculated for the right sheet
-        csvFiles = sorted(glob(f"{os.path.dirname(excelFile)}\\{sheetName}_{dims}*.csv"))
-        print(f"     {len(csvFiles)} relevant identity files found")
-        
-    else: 
-        print("     No relevant data found")
-        csvFiles = []
+
+        # attribute combinations are not important for identity data
+        csvName = f"{sheetName}_{dims}"
+
+    # identities contain all information, just check the dims are calculated for the right sheet
+    csvFiles = sorted(glob(f"{os.path.dirname(excelFile)}\\{csvName}*.csv"))
+    print(f"     {len(csvFiles)} relevant identity files found")
 
     # Get only the data, not the headers
     data = posdf[start::, start::]
@@ -97,7 +96,7 @@ def similarityCalculation(excelFile: str, sheetName: str, dims: int):
             eps=1e-6,
             random_state=seed,
             dissimilarity="precomputed",
-            n_jobs=-2, 
+            n_jobs=1, 
         )
         pos = mds.fit(1-similarities).embedding_
 
@@ -115,11 +114,11 @@ def similarityCalculation(excelFile: str, sheetName: str, dims: int):
             posidentities = posidentitiesSelect.set_axis(formatColumns, axis=1, inplace=False)
             posdf = posdf.merge(posidentities, on=categoriesHeader[0], how='left')
 
-        # save the calculated positional dataframe to the same directory as the original excel file
+        # date stamp the file
         dir = os.path.dirname(excelFile)
         now = datetime.now()
         dt_string = now.strftime("%Y%m%d_%H%M%S")
-        csvPath = f"{dir}\\{sheetName}_{dims}_{dt_string}.csv"
+        csvPath = f"{dir}\\{csvName}_{dt_string}.csv"
         posdf.to_csv(csvPath)
 
     else:
@@ -152,7 +151,7 @@ def createInteractivePlot(df, info = ""):
         html.Div([
             html.Div([
                 dcc.Dropdown(
-                    attrList,
+                    sorted(attrList),
                     attrList[0],
                     id='selectedDropDown',
                 )
@@ -210,11 +209,20 @@ def update_graph(dfjson, attribute, attrList, toggle, info):
                 color = attribute, 
                 title = plotTitle
                 )
+        selectedAttr = attribute
+
+    # create the specific names for saving the plots
+    if "Attribute" in info: 
+        # for attribute analysis, the combination is important. Highligh the specific
+        # attribute with ##
+        selectedAttr = [a.replace(attribute, f"#{attribute}#") for a in sorted(attrList)]
+    else:
+        selectedAttr = attribute
 
     fig.update_layout(width=1200, height=600, hovermode='closest')
     
     if toggle:
-        fig.write_html(f'{os.path.expanduser("~")}\\Downloads\\{info}_{attribute}_{dims}D_{datetime.now().strftime("%y%m%d %H%M%S")}.html')
+        fig.write_html(f'{os.path.expanduser("~")}\\Downloads\\{info}_{dims}D_{selectedAttr}_{datetime.now().strftime("%y%m%d %H%M%S")}.html')
         
     print("---Web server launched---")
     return fig
@@ -249,13 +257,14 @@ def multiDimAnalysis(excelFile: str, sheetName: str, dims: int):
     print(f"Loading {latestcsv} for plotting")
 
     app = createInteractivePlot(posdf, sheetName)
+    os.system("start \"\" http://127.0.0.1:8050/")
     app.run_server()          
 
 if __name__ == "__main__":
    
     print("Loading....")
-    if len(sys.argv) == 5:
-        _, workbook, worksheet, attribute, dims = sys.argv
+    if len(sys.argv) == 4:
+        _, workbook, worksheet, dims = sys.argv
 
         multiDimAnalysis(str(workbook), str(worksheet), int(dims))
     else:
