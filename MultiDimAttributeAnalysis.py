@@ -14,6 +14,7 @@ import os
 import io
 from datetime import datetime
 import dash_daq as daq
+import webbrowser
 
 
 # https://dash.plotly.com/interactive-graphing
@@ -34,56 +35,57 @@ def similarityCalculation(excelFile: str, sheetName: str, dims: int):
 
     seed = np.random.RandomState(seed=3)
 
-    posdf = pd.read_excel(excelFile, sheet_name=sheetName, header=None).fillna(False).to_numpy()
-    # posdf = pd.read_excel(excelFile, sheet_name='SimilarityScoreIdentities').fillna(False).to_numpy()
 
-    print("     Excel file successfully loaded")
-
-    # find which row/column the data start
-    start = min(np.where(posdf[:, 0]!=False)[0]) + 1
-
-    # get the category information
-    categoriesRaw = [d for d in posdf[start::, :start]]
-    categoriesArray = np.array(categoriesRaw)
-    # categoriesHeader = [c.replace(" ", "") for c in list(posdf[start-1, 0:start]) if type(c) == str]
-    categoriesHeader = [c.replace(" ", "") for c in list(posdf[start-1, 0:start]) if type(c) == str]
-    joinedCategoryHeaders =  '_'.join(sorted(categoriesHeader))
-
-    print(f"     {len(categoriesHeader)} categories extracted")
-
-    # remove the categories which are empty (ie false)
-    categoriesArray = [categoriesArray[:, n] for n in range(categoriesArray.shape[1]) if (categoriesArray[:, n]  != False).all()]
-    categories = np.transpose(np.array(categoriesArray))
-
-    # check if the data has already been calculated
     if "attributes" in sheetName.lower():
+        print(f"     Loading {sheetName} from {excelFile}")
+        posdf = pd.read_excel(excelFile, sheet_name=sheetName, header=None).fillna(False).to_numpy()
+        # posdf = pd.read_excel(excelFile, sheet_name='SimilarityScoreIdentities').fillna(False).to_numpy()
 
-        # the combination of attribute are important for attribute searches
+        print("     Excel file successfully loaded")
+
+        # find which row/column the data start
+        start = min(np.where(posdf[:, 0]!=False)[0]) + 1
+
+        # get the category information
+        categoriesRaw = [d for d in posdf[start::, :start]]
+        categoriesArray = np.array(categoriesRaw)
+        # categoriesHeader = [c.replace(" ", "") for c in list(posdf[start-1, 0:start]) if type(c) == str]
+        categoriesHeader = [c.replace(" ", "") for c in list(posdf[start-1, 0:start]) if type(c) == str]
+        joinedCategoryHeaders =  '_'.join(sorted(categoriesHeader))
+
+        print(f"     {len(categoriesHeader)} categories extracted")
+
+        # remove the categories which are empty (ie false)
+        categoriesArray = [categoriesArray[:, n] for n in range(categoriesArray.shape[1]) if (categoriesArray[:, n]  != False).all()]
+        categories = np.transpose(np.array(categoriesArray))
+
+        # check if the data has already been calculated
         csvName = f"{sheetName}_{dims}_{joinedCategoryHeaders}"
+        csvFiles = sorted(glob(f"{os.path.dirname(excelFile)}\\{csvName}*.csv"))
+        calculateMDS = len(csvFiles) == 0
 
     elif "identities" in sheetName.lower():
 
         # attribute combinations are not important for identity data
         csvName = f"{sheetName}_{dims}"
 
-    # identities contain all information, just check the dims are calculated for the right sheet
-    csvFiles = sorted(glob(f"{os.path.dirname(excelFile)}\\{csvName}*.csv"))
-    print(f"     {len(csvFiles)} relevant identity files found")
+        # identities contain all information, just check the dims are calculated for the right sheet
+        csvFiles = sorted(glob(f"{os.path.dirname(excelFile)}\\{csvName}*.csv"))
+        calculateMDS = len(csvFiles) == 0
 
-    # Get only the data, not the headers
-    data = posdf[start::, start::]
-    dimY, dimX = np.where(data=="Dimensions")
-    if len(dimY) >0 and len(dimX) >0:
-        data[dimY[0], dimX[0]:(dimX[0]+2)] = False           # search for and remove the dimensions free text
-    data[np.where(data==False)] = 1
-    data = data.astype(np.float64)
+    if calculateMDS:
 
-    print(f"     {len(data)} data points extracted")
-
-    if len(csvFiles) == 0:
-
-        print("     New csv being created")
-
+        print("     No relevant calculations found, new MDS calculation beginning")
+        
+        # Get only the data, not the headers
+        data = posdf[start::, start::]
+        dimY, dimX = np.where(data=="Dimensions")
+        if len(dimY) >0 and len(dimX) >0:
+            data[dimY[0], dimX[0]:(dimX[0]+2)] = False           # search for and remove the dimensions free text
+        data[np.where(data==False)] = 1
+        data = data.astype(np.float64)
+        print(f"     {len(data)} data points extracted")
+        
         # create the pre-computed similartiies matrix
         similarities = data * data.transpose()
 
@@ -124,7 +126,7 @@ def similarityCalculation(excelFile: str, sheetName: str, dims: int):
     else:
         # return the most recently created version
         csvPath = csvFiles[-1]
-        print(f"    Existing csv: {csvPath}")
+        print(f"     Loading {sheetName} from {excelFile}")
 
     return csvPath
 
@@ -196,12 +198,21 @@ def update_graph(dfjson, attribute, attrList, toggle, info):
     dims = sum(1 for x in list(dataColumns) if x.startswith ("Dim"))
     plotTitle = f"{info} {dims}D visualising {attribute} for {len(df)} data points"
 
+    # set the constant for x, y, z scaling (0 = exact fit for data, 0.1 = 10% larger etc)
+    r = 0.2
+
     if dims == 2:
         fig = px.scatter(df, x=df["Dim0"], y=df["Dim1"],
                 hover_data = attrList,
                 color = attribute,
                 title = plotTitle
                 )
+        
+        fig.update_layout(
+            scene = dict(
+                xaxis = dict(range=[min(df["Dim0"])*(1-r), max(df["Dim0"])*(1+r)]),
+                yaxis = dict(range=[min(df["Dim1"])*(1-r), max(df["Dim1"])*(1+r)])
+                ))
 
     elif dims == 3:
         fig = px.scatter_3d(df, x=df["Dim0"], y=df["Dim1"], z=df["Dim2"],
@@ -209,7 +220,14 @@ def update_graph(dfjson, attribute, attrList, toggle, info):
                 color = attribute, 
                 title = plotTitle
                 )
-        selectedAttr = attribute
+
+        fig.update_layout(
+            scene = dict(
+                xaxis = dict(range=[min(df["Dim0"])*(1-r), max(df["Dim0"])*(1+r)]),
+                yaxis = dict(range=[min(df["Dim1"])*(1-r), max(df["Dim1"])*(1+r)]),
+                zaxis = dict(range=[min(df["Dim2"])*(1-r), max(df["Dim2"])*(1+r)])
+                ))
+
 
     # create the specific names for saving the plots
     if "Attribute" in info: 
@@ -222,7 +240,7 @@ def update_graph(dfjson, attribute, attrList, toggle, info):
     fig.update_layout(width=1200, height=600, hovermode='closest')
     
     if toggle:
-        fig.write_html(f'{os.path.expanduser("~")}\\Downloads\\{info}_{dims}D_{selectedAttr}_{datetime.now().strftime("%y%m%d %H%M%S")}.html')
+        fig.write_html(f'{os.path.expanduser("~")}\\Downloads\\{info}_{dims}D_{selectedAttr}_{datetime.now().strftime("%y%m%d%H%M%S")}.html')
         
     print("---Web server launched---")
     return fig
@@ -257,7 +275,8 @@ def multiDimAnalysis(excelFile: str, sheetName: str, dims: int):
     print(f"Loading {latestcsv} for plotting")
 
     app = createInteractivePlot(posdf, sheetName)
-    os.system("start \"\" http://127.0.0.1:8050/")
+    # os.system("start \"\" http://127.0.0.1:8050/")
+    webbrowser.open("http://127.0.0.1:8050/", new = 0, autoraise = True)
     app.run_server()          
 
 if __name__ == "__main__":
