@@ -7,15 +7,12 @@ from glob import glob
 # from sklearn.metrics import euclidean_distances
 # from sklearn.decomposition import PCA
 import plotly.express as px
-
-from dash import Dash, html, dcc, Input, Output, State
+from dash import Dash, html, dcc, Input, Output, State, dash_table
 import pandas as pd
 import os
-import io
 from datetime import datetime
 import dash_daq as daq
 import webbrowser
-
 
 # https://dash.plotly.com/interactive-graphing
 # https://scikit-learn.org/stable/auto_examples/manifold/plot_mds.html 
@@ -156,9 +153,9 @@ def createInteractivePlot(df, info = ""):
     # Remove the key words "Count" and "Unnamed: 0" which are artefacts of the plotting
 
     print("---Creating web server for plotting---")
-    formatColumns = [r for r in list(df.columns) if len(df[r].unique()) < 100]
-    attrList = [l for l in formatColumns if not (l.lower().startswith("dim") or l.lower().startswith("unnamed"))]
-
+    # attrList = [l for l in sorted(formatColumns) if not (l.lower().startswith("dim") or l.lower().startswith("unnamed"))]
+    hover_data = [d for d in sorted(list(df.columns)) if (d.lower().find("unnamed") == -1 and d.lower().find("dim") == -1)]
+    attrList = [r for r in hover_data if len(df[r].unique()) < 100]
     try: attrList.remove("Count")
     except: pass
 
@@ -173,7 +170,7 @@ def createInteractivePlot(df, info = ""):
         html.Div([
             html.Div([
                 dcc.Dropdown(
-                    sorted(attrList),
+                    attrList,
                     attrList[0],
                     id='selectedDropDown',
                 )
@@ -186,7 +183,7 @@ def createInteractivePlot(df, info = ""):
         # plotly figure
         html.Div([
             dcc.Graph(
-                id='crossfilter-indicator-scatter'
+                id='plotly_figure'
             )
         ], style={'width': '100%', 'height':'100%', 'display': 'inline-block', 'padding': '0 10'}),
     
@@ -194,7 +191,7 @@ def createInteractivePlot(df, info = ""):
         daq.ToggleSwitch(
                 id='my-toggle-switch',
                 value=False
-            ),
+            ), 
             html.Div(id='my-toggle-switch-output'),
 
         # plotly stop running button
@@ -202,28 +199,48 @@ def createInteractivePlot(df, info = ""):
                 id='my-stop-button-1',
                 label='Default',
                 n_clicks=0
-            ),
+            ), 
             html.Div(id='stop-button-output-1'),
+
+        # data table
+        dash_table.DataTable(
+                id='selected_points_table',
+                columns=[{
+                    'name': '{}'.format(a),
+                    'id': '{}'.format(a),
+                } for a in hover_data],
+                data=[{a: "" for a in hover_data}],
+                editable=True,
+                row_deletable=True,
+                export_format='xlsx',
+                export_headers='display',
+                merge_duplicate_headers=True
+            ),
 
         # data being transferred to call back functions
         dcc.Store(data = df.to_json(orient='split'), id = "dataFrame"),
         dcc.Store(data = attrList, id = "attrList"),
         dcc.Store(data = info, id = "info"),
-        dcc.Store(data = os.getpid(), id = "pid")
+        dcc.Store(data = os.getpid(), id = "pid"),
+        dcc.Store(data = hover_data, id = "hover_data"),
+
+        html.Div(id='output')
     ])
 
     print("     Web app created")
     return app
     
+# plotly figure updates
 @app.callback(
-    Output('crossfilter-indicator-scatter', 'figure'),
+    Output('plotly_figure', 'figure'),
     Input('dataFrame', 'data'),
     Input('selectedDropDown', 'value'),
     Input('attrList', 'data'),
     Input('my-toggle-switch', 'value'),
-    Input('info', 'data')
+    Input('info', 'data'), 
+    Input('hover_data', 'data')
     )
-def update_graph(dfjson, attribute, attrList, toggle, info):
+def update_graph(dfjson, attribute, attrList, toggle, info, hover_data):
 
     df = pd.read_json(dfjson, orient='split')
     dataColumns = list(df.columns)
@@ -232,8 +249,6 @@ def update_graph(dfjson, attribute, attrList, toggle, info):
 
     # set the constant for x, y, z scaling (0 = exact fit for data, 0.1 = 10% larger etc)
     r = 0.2
-
-    hover_data = [d for d in sorted(list(df.columns)) if (d.lower().find("unnamed") == -1 and d.lower().find("dim") == -1)]
 
     if dims == 2:
         fig = px.scatter(df, x=df["Dim0"], y=df["Dim1"],
@@ -264,6 +279,8 @@ def update_graph(dfjson, attribute, attrList, toggle, info):
                 zaxis = dict(range=[min(df["Dim2"])*(1-r), max(df["Dim2"])*(1+r)])
                 ))
 
+    # allow for multiple point selection
+    fig.update_layout(clickmode='event+select')
 
     # create the specific names for saving the plots
     if "Attribute" in info: 
@@ -281,6 +298,7 @@ def update_graph(dfjson, attribute, attrList, toggle, info):
     print("---Web server launched---")
     return fig
 
+# toggle to save data
 @app.callback(
     Output('my-toggle-switch-output', 'children'),
     Input('my-toggle-switch', 'value'),
@@ -292,9 +310,10 @@ def update_output(value, attribute):
     else:
         return "Not saving plots"
 
+# killing the dash server
 @app.callback(
     Output('stop-button-output-1', 'children'),
-    Input('crossfilter-indicator-scatter', 'figure'),
+    Input('plotly_figure', 'figure'),
     Input('my-stop-button-1', 'n_clicks'), 
     Input('pid', 'data')
 )
@@ -303,6 +322,38 @@ def update_exitButton(fig, n_clicks, pid):
         fig.update
         os.system(f"taskkill /IM {pid} /F") # this kills the app
         return 'The stop button has been clicked {} times.'.format(n_clicks)
+
+# action to perform when a row is added
+@app.callback(
+    Output('selected_points_table', 'data'),
+    State('selected_points_table', 'data'),
+    Input('hover_data', 'data'),
+    Input('plotly_figure', 'clickData'))
+def add_row(rows, hover_data, inputData):
+    d = {}
+    if inputData is None:
+        # rows = None
+        pass
+    else:
+        for n, hd in enumerate(hover_data):
+            d[hd] = inputData['points'][0]['customdata'][n]
+        if rows == []:
+            rows = [d]
+        elif all(rows[-1][k] == "" for k in list(rows[-1])): 
+            rows = [d]
+        else:
+            rows.append(d)
+    
+    return rows
+
+# action to perform when row is removed
+@app.callback(Output('output', 'children'),
+            Input('plotly_figure', 'figure'),
+            Input('selected_points_table', 'data_previous'),
+            State('selected_points_table', 'data'))
+def remove_rows(fig, previous, current):
+    if previous is not None:
+        return "" # [f'Just removed {row}' for row in previous if row not in current]
 
 
 # ----------- Data processing and visualisation (main function) ----------
