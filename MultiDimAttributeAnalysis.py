@@ -177,7 +177,7 @@ def createInteractivePlot(df, info = ""):
             ],
             style={'width': '49%', 'display': 'inline-block'})
         ], style={
-            'padding': '10px 5px'
+            'padding': '0px 5px'
         }),
 
         # plotly figure
@@ -192,7 +192,7 @@ def createInteractivePlot(df, info = ""):
                 id='my-toggle-switch',
                 value=False
             ), 
-            html.Div(id='my-toggle-switch-output'),
+            html.Div(id='toggle_switch'),
 
         # plotly stop running button
         daq.StopButton(
@@ -200,7 +200,14 @@ def createInteractivePlot(df, info = ""):
                 label='Default',
                 n_clicks=0
             ), 
-            html.Div(id='stop-button-output-1'),
+            html.Div(id='stop_button'),
+
+        dcc.Input( 
+            id="input_filename", 
+            type="text", 
+            placeholder="File name", 
+            value = ""), 
+        html.Button('Save file', id='submit_file', n_clicks=0), 
 
         # data table
         dash_table.DataTable(
@@ -209,12 +216,12 @@ def createInteractivePlot(df, info = ""):
                     'name': '{}'.format(a),
                     'id': '{}'.format(a),
                 } for a in hover_data],
-                data=[{a: "" for a in hover_data}],
+                # data=[{a: "" for a in hover_data}],
                 editable=True,
                 row_deletable=True,
-                export_format='xlsx',
-                export_headers='display',
-                merge_duplicate_headers=True
+                # export_format='xlsx',
+                # export_headers='display',
+                # merge_duplicate_headers=True
             ),
 
         # data being transferred to call back functions
@@ -231,8 +238,7 @@ def createInteractivePlot(df, info = ""):
     return app
     
 # plotly figure updates
-@app.callback(
-    Output('plotly_figure', 'figure'),
+@app.callback(Output('plotly_figure', 'figure'),
     Input('dataFrame', 'data'),
     Input('selectedDropDown', 'value'),
     Input('attrList', 'data'),
@@ -299,8 +305,7 @@ def update_graph(dfjson, attribute, attrList, toggle, info, hover_data):
     return fig
 
 # toggle to save data
-@app.callback(
-    Output('my-toggle-switch-output', 'children'),
+@app.callback(Output('toggle_switch', 'children'),
     Input('my-toggle-switch', 'value'),
     Input('selectedDropDown', 'value')
 )
@@ -311,8 +316,7 @@ def update_output(value, attribute):
         return "Not saving plots"
 
 # killing the dash server
-@app.callback(
-    Output('stop-button-output-1', 'children'),
+@app.callback(Output('stop_button', 'children'),
     Input('plotly_figure', 'figure'),
     Input('my-stop-button-1', 'n_clicks'), 
     Input('pid', 'data')
@@ -321,23 +325,22 @@ def update_exitButton(fig, n_clicks, pid):
     if n_clicks > 0:
         fig.update
         os.system(f"taskkill /IM {pid} /F") # this kills the app
-        return 'The stop button has been clicked {} times.'.format(n_clicks)
+        return 
 
 # action to perform when a row is added
-@app.callback(
-    Output('selected_points_table', 'data'),
+@app.callback(Output('selected_points_table', 'data'),
     State('selected_points_table', 'data'),
     Input('hover_data', 'data'),
     Input('plotly_figure', 'clickData'))
 def add_row(rows, hover_data, inputData):
-    d = {}
     if inputData is None:
         # rows = None
         pass
     else:
+        d = {}
         for n, hd in enumerate(hover_data):
             d[hd] = inputData['points'][0]['customdata'][n]
-        if rows == []:
+        if rows == [] or rows is None:
             rows = [d]
         elif all(rows[-1][k] == "" for k in list(rows[-1])): 
             rows = [d]
@@ -354,6 +357,32 @@ def add_row(rows, hover_data, inputData):
 def remove_rows(fig, previous, current):
     if previous is not None:
         return "" # [f'Just removed {row}' for row in previous if row not in current]
+
+@app.callback(Output('input_filename', 'placeholder'),
+    Output('input_filename', 'value'),
+    Input('submit_file','n_clicks'),
+    State('selected_points_table','data'),
+    State('input_filename','value')
+)
+def updateout(count, tab_data, filename):
+
+    # Save data as long as there is information etc
+    if tab_data == [] or tab_data is None:
+        placeholder = "Select data"
+    elif filename == "":
+        placeholder = "Set file name"
+    else:
+        fileName = f"{os.path.expanduser('~')}\\Downloads\\{filename}.csv"
+        if not os.path.exists(fileName):
+            pd.DataFrame.from_records(tab_data).to_csv(fileName,index=False)
+            placeholder = "File saved"
+        else:
+            placeholder = "File exists"
+    
+    # always reset the text
+    output = ""
+
+    return placeholder, output
 
 
 # ----------- Data processing and visualisation (main function) ----------
@@ -376,7 +405,7 @@ def multiDimAnalysis(excelFile: str, sheetName: str, dims: int):
 
     app = createInteractivePlot(posdf, sheetName)
     # os.system("start \"\" http://127.0.0.1:8050/")
-    webbrowser.open("http://127.0.0.1:8050/", new = 0, autoraise = True)
+    # webbrowser.open("http://127.0.0.1:8050/", new = 0, autoraise = True)
     app.run_server(debug = False)          
 
 if __name__ == "__main__":
@@ -387,7 +416,7 @@ if __name__ == "__main__":
 
         multiDimAnalysis(str(workbook), str(worksheet), int(dims))
     else:
-        workbook = "C:\\Users\\ResheJ\\Downloads\\WorkBook-Blankv5c.xlsm"
+        workbook = "C:\\Users\\ResheJ\\Downloads\\WorkBook-Blankv6.xlsm"
         worksheet = "SimilarityScoreIdentities"
         dim = 3
         
