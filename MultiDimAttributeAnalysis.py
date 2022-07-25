@@ -59,9 +59,6 @@ def similarityCalculation(excelFile: str, sheetName: str, dims: int):
 
     print("---similarityCalculation beginning---")
 
-    seed = np.random.RandomState(seed=3)
-
-
     if "attributes" in sheetName.lower():
         print(f"     Loading {sheetName} from {excelFile}")
         posdf = pd.read_excel(excelFile, sheet_name=sheetName, header=None).fillna(False).to_numpy()
@@ -87,6 +84,7 @@ def similarityCalculation(excelFile: str, sheetName: str, dims: int):
 
         # only load the identity excel sheet if we know that we have to calculate the info
         if calculateMDS:
+            print(f"     Opening {sheetName} worksheet")
             posdf = pd.read_excel(excelFile, sheet_name=sheetName, header=None).fillna(False).to_numpy()
             data, categories, categoriesHeader = getExcelInfo(posdf)
 
@@ -102,17 +100,18 @@ def similarityCalculation(excelFile: str, sheetName: str, dims: int):
 
         mds = manifold.MDS( 
             n_components=dims, 
-            max_iter=3000,
-            eps=1e-6,
-            random_state=seed,
+            # max_iter=3000,
+            eps=1e-3,
+            random_state=np.random.RandomState(seed=3),
             dissimilarity="precomputed",
             n_jobs=1, 
+            verbose=2
         )
         pos = mds.fit(1-similarities).embedding_
         iters = mds.n_iter_
         disparities = mds.stress_
 
-        print(f"     Fitting complete with {iters} iterations and a stress of {disparities}")
+        print(f"     Fitting complete")
 
         # get n-dimension labels
         dimNames = [f"Dim{n}" for n in range(len(pos[0]))]
@@ -155,9 +154,18 @@ def createInteractivePlot(df, info = ""):
     print("---Creating web server for plotting---")
     # attrList = [l for l in sorted(formatColumns) if not (l.lower().startswith("dim") or l.lower().startswith("unnamed"))]
     hover_data = [d for d in sorted(list(df.columns)) if (d.lower().find("unnamed") == -1 and d.lower().find("dim") == -1)]
-    attrList = [r for r in hover_data if len(df[r].unique()) < 100]
+    attrList = [r.replace(r, f"LONG:{r}") if len(df[r].unique()) > 100 else r for r in hover_data ]
     try: attrList.remove("Count")
     except: pass
+
+    # for values which are numeric, convert their values into a ranked position so that 
+    # on the heat maps it can show up easily
+    # NOTE this is not actually very useful as it assumes that data that is chronological is related
+    '''
+    dfSelect = df[hover_data]
+    dfRanked = dfSelect.rank(numeric_only = True, method = 'dense').astype(int)
+    df[list(dfRanked.columns)] = dfRanked
+    '''
 
     # make data point selection
     # https://dash.plotly.com/interactive-graphing
@@ -171,7 +179,7 @@ def createInteractivePlot(df, info = ""):
             html.Div([
                 dcc.Dropdown(
                     attrList,
-                    attrList[0],
+                    [a for a in attrList if a.find("LONG") == -1][0],     # ensure an attribute which isn't LONG is selected
                     id='selectedDropDown',
                 )
             ],
@@ -252,6 +260,9 @@ def update_graph(dfjson, attribute, attrList, toggle, info, hover_data):
     dataColumns = list(df.columns)
     dims = sum(1 for x in list(dataColumns) if x.startswith ("Dim"))
     plotTitle = f"{info} {dims}D visualising {attribute} for {len(df)} data points"
+
+    # if there is a warning "LONG", remove so it matches the dataframe
+    attribute = attribute.replace("LONG:", "")
 
     # set the constant for x, y, z scaling (0 = exact fit for data, 0.1 = 10% larger etc)
     r = 0.2
@@ -405,7 +416,7 @@ def multiDimAnalysis(excelFile: str, sheetName: str, dims: int):
 
     app = createInteractivePlot(posdf, sheetName)
     # os.system("start \"\" http://127.0.0.1:8050/")
-    # webbrowser.open("http://127.0.0.1:8050/", new = 0, autoraise = True)
+    webbrowser.open("http://127.0.0.1:8050/", new = 0, autoraise = True)
     app.run_server(debug = False)          
 
 if __name__ == "__main__":
