@@ -25,6 +25,35 @@ app = Dash(__name__, external_stylesheets=external_stylesheets)
 
 # ---------- MDS calculations ----------
 
+def getExcelInfo(posdf):
+
+    # find which row/column the data start
+    start = min(np.where(posdf[:, 0]!=False)[0]) + 1
+
+    # get the category information
+    categoriesRaw = [d for d in posdf[start::, :start]]
+    categoriesArray = np.array(categoriesRaw)
+    # categoriesHeader = [c.replace(" ", "") for c in list(posdf[start-1, 0:start]) if type(c) == str]
+    categoriesHeader = [c.replace(" ", "") for c in list(posdf[start-1, 0:start]) if type(c) == str]
+
+    print(f"     {len(categoriesHeader)} categories extracted")
+
+    # remove the categories which are empty (ie false)
+    categoriesArray = [categoriesArray[:, n] for n in range(categoriesArray.shape[1]) if (categoriesArray[:, n]  != False).all()]
+    categories = np.transpose(np.array(categoriesArray))
+
+    # find which row/column the data start
+    start = min(np.where(posdf[:, 0]!=False)[0]) + 1
+    data = posdf[start::, start::]
+    dimY, dimX = np.where(data=="Dimensions")
+    if len(dimY) >0 and len(dimX) >0:
+        data[dimY[0], dimX[0]:(dimX[0]+2)] = False           # search for and remove the dimensions free text
+    data[np.where(data==False)] = 1
+    data = data.astype(np.float64)
+    print(f"     {len(data)} data points extracted")
+
+    return data, categories, categoriesHeader
+
 def similarityCalculation(excelFile: str, sheetName: str, dims: int):
 
     '''
@@ -39,25 +68,11 @@ def similarityCalculation(excelFile: str, sheetName: str, dims: int):
     if "attributes" in sheetName.lower():
         print(f"     Loading {sheetName} from {excelFile}")
         posdf = pd.read_excel(excelFile, sheet_name=sheetName, header=None).fillna(False).to_numpy()
-        # posdf = pd.read_excel(excelFile, sheet_name='SimilarityScoreIdentities').fillna(False).to_numpy()
+
+        # we need the excel sheet to do the processing
+        data, categories, categoriesHeader = getExcelInfo(posdf)
 
         print("     Excel file successfully loaded")
-
-        # find which row/column the data start
-        start = min(np.where(posdf[:, 0]!=False)[0]) + 1
-
-        # get the category information
-        categoriesRaw = [d for d in posdf[start::, :start]]
-        categoriesArray = np.array(categoriesRaw)
-        # categoriesHeader = [c.replace(" ", "") for c in list(posdf[start-1, 0:start]) if type(c) == str]
-        categoriesHeader = [c.replace(" ", "") for c in list(posdf[start-1, 0:start]) if type(c) == str]
-        joinedCategoryHeaders =  '_'.join(sorted(categoriesHeader))
-
-        print(f"     {len(categoriesHeader)} categories extracted")
-
-        # remove the categories which are empty (ie false)
-        categoriesArray = [categoriesArray[:, n] for n in range(categoriesArray.shape[1]) if (categoriesArray[:, n]  != False).all()]
-        categories = np.transpose(np.array(categoriesArray))
 
         # check if the data has already been calculated
         csvName = f"{sheetName}_{dims}_{joinedCategoryHeaders}"
@@ -73,19 +88,15 @@ def similarityCalculation(excelFile: str, sheetName: str, dims: int):
         csvFiles = sorted(glob(f"{os.path.dirname(excelFile)}\\{csvName}*.csv"))
         calculateMDS = len(csvFiles) == 0
 
+        # only load the identity excel sheet if we know that we have to calculate the info
+        if calculateMDS:
+            posdf = pd.read_excel(excelFile, sheet_name=sheetName, header=None).fillna(False).to_numpy()
+            data, categories, categoriesHeader = getExcelInfo(posdf)
+
     if calculateMDS:
 
         print("     No relevant calculations found, new MDS calculation beginning")
-        
-        # Get only the data, not the headers
-        data = posdf[start::, start::]
-        dimY, dimX = np.where(data=="Dimensions")
-        if len(dimY) >0 and len(dimX) >0:
-            data[dimY[0], dimX[0]:(dimX[0]+2)] = False           # search for and remove the dimensions free text
-        data[np.where(data==False)] = 1
-        data = data.astype(np.float64)
-        print(f"     {len(data)} data points extracted")
-        
+                
         # create the pre-computed similartiies matrix
         similarities = data * data.transpose()
 
@@ -101,19 +112,24 @@ def similarityCalculation(excelFile: str, sheetName: str, dims: int):
             n_jobs=1, 
         )
         pos = mds.fit(1-similarities).embedding_
+        iters = mds.n_iter_
+        disparities = mds.stress_
+
+        print(f"     Fitting complete with {iters} iterations and a stress of {disparities}")
 
         # get n-dimension labels
         dimNames = [f"Dim{n}" for n in range(len(pos[0]))]
 
+        joinedCategoryHeaders =  '_'.join(sorted(categoriesHeader))
         posdf = pd.DataFrame(np.hstack([pos, categories]), columns = [*dimNames, *categoriesHeader])
 
-        # merge all identity information if available
+        # merge all identity information if available. Remove unnecessary columns and add warnings to long attribute lists
         if "Identities" in sheetName: 
             posidentitiesRaw = pd.read_excel(excelFile, sheet_name="IdentityInformation")
-            selectColums = [r for r in list(posidentitiesRaw.columns) if r.lower().find("unnamed")]
+            selectColums = [r for r in list(posidentitiesRaw.columns) if r.lower().find("unnamed") == -1]
             posidentitiesSelect = posidentitiesRaw[selectColums]
-            formatColumns = [r.replace(" ", "") for r in list(posidentitiesSelect.columns) if r.lower().find("unnamed")]
-            posidentities = posidentitiesSelect.set_axis(formatColumns, axis=1, inplace=False)
+            formatColumns0 = [r.replace(" ", "") for r in list(posidentitiesSelect.columns)]
+            posidentities = posidentitiesSelect.set_axis(formatColumns0, axis=1, inplace=False)
             posdf = posdf.merge(posidentities, on=categoriesHeader[0], how='left')
 
         # date stamp the file
@@ -140,16 +156,20 @@ def createInteractivePlot(df, info = ""):
     # Remove the key words "Count" and "Unnamed: 0" which are artefacts of the plotting
 
     print("---Creating web server for plotting---")
-    attrList = [l for l in list(df.columns) if not (l.startswith("Dim") or len(df[l].unique())>100)]
+    formatColumns = [r for r in list(df.columns) if len(df[r].unique()) < 100]
+    attrList = [l for l in formatColumns if not (l.lower().startswith("dim") or l.lower().startswith("unnamed"))]
+
     try: attrList.remove("Count")
     except: pass
-    try: attrList.remove("Unnamed: 0")
-    except: pass
 
-    buffer = io.StringIO()
-    html_bytes = buffer.getvalue().encode()
+    # make data point selection
+    # https://dash.plotly.com/interactive-graphing
+    # https://dash.plotly.com/datatable
+    # https://dash.plotly.com/datatable/editable 
+
 
     app.layout = html.Div([
+        # drop down list of attribute options detected from data 
         html.Div([
             html.Div([
                 dcc.Dropdown(
@@ -163,21 +183,33 @@ def createInteractivePlot(df, info = ""):
             'padding': '10px 5px'
         }),
 
+        # plotly figure
         html.Div([
             dcc.Graph(
                 id='crossfilter-indicator-scatter'
             )
         ], style={'width': '100%', 'height':'100%', 'display': 'inline-block', 'padding': '0 10'}),
     
+        # saving figure toggle
         daq.ToggleSwitch(
                 id='my-toggle-switch',
                 value=False
             ),
             html.Div(id='my-toggle-switch-output'),
 
+        # plotly stop running button
+        daq.StopButton(
+                id='my-stop-button-1',
+                label='Default',
+                n_clicks=0
+            ),
+            html.Div(id='stop-button-output-1'),
+
+        # data being transferred to call back functions
         dcc.Store(data = df.to_json(orient='split'), id = "dataFrame"),
         dcc.Store(data = attrList, id = "attrList"),
-        dcc.Store(data = info, id = "info")
+        dcc.Store(data = info, id = "info"),
+        dcc.Store(data = os.getpid(), id = "pid")
     ])
 
     print("     Web app created")
@@ -201,11 +233,14 @@ def update_graph(dfjson, attribute, attrList, toggle, info):
     # set the constant for x, y, z scaling (0 = exact fit for data, 0.1 = 10% larger etc)
     r = 0.2
 
+    hover_data = [d for d in sorted(list(df.columns)) if (d.lower().find("unnamed") == -1 and d.lower().find("dim") == -1)]
+
     if dims == 2:
         fig = px.scatter(df, x=df["Dim0"], y=df["Dim1"],
-                hover_data = attrList,
+                hover_data = hover_data,
                 color = attribute,
-                title = plotTitle
+                title = plotTitle, 
+                hover_name= attribute
                 )
         
         fig.update_layout(
@@ -216,9 +251,10 @@ def update_graph(dfjson, attribute, attrList, toggle, info):
 
     elif dims == 3:
         fig = px.scatter_3d(df, x=df["Dim0"], y=df["Dim1"], z=df["Dim2"],
-                hover_data = attrList,
+                hover_data = hover_data,
                 color = attribute, 
-                title = plotTitle
+                title = plotTitle, 
+                hover_name= attribute
                 )
 
         fig.update_layout(
@@ -238,7 +274,7 @@ def update_graph(dfjson, attribute, attrList, toggle, info):
         selectedAttr = attribute
 
     fig.update_layout(width=1200, height=600, hovermode='closest')
-    
+
     if toggle:
         fig.write_html(f'{os.path.expanduser("~")}\\Downloads\\{info}_{dims}D_{selectedAttr}_{datetime.now().strftime("%y%m%d%H%M%S")}.html')
         
@@ -255,6 +291,19 @@ def update_output(value, attribute):
         return f"Saving {attribute} plot"
     else:
         return "Not saving plots"
+
+@app.callback(
+    Output('stop-button-output-1', 'children'),
+    Input('crossfilter-indicator-scatter', 'figure'),
+    Input('my-stop-button-1', 'n_clicks'), 
+    Input('pid', 'data')
+)
+def update_exitButton(fig, n_clicks, pid):
+    if n_clicks > 0:
+        fig.update
+        os.system(f"taskkill /IM {pid} /F") # this kills the app
+        return 'The stop button has been clicked {} times.'.format(n_clicks)
+
 
 # ----------- Data processing and visualisation (main function) ----------
 
@@ -277,7 +326,7 @@ def multiDimAnalysis(excelFile: str, sheetName: str, dims: int):
     app = createInteractivePlot(posdf, sheetName)
     # os.system("start \"\" http://127.0.0.1:8050/")
     webbrowser.open("http://127.0.0.1:8050/", new = 0, autoraise = True)
-    app.run_server()          
+    app.run_server(debug = False)          
 
 if __name__ == "__main__":
    
