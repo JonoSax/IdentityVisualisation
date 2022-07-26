@@ -228,7 +228,7 @@ def createInteractivePlot(df, info = ""):
                 "display": "inline-block",
                 }),
 
-        # Save file button
+        # Save file button and text entry
         html.Div([
             dcc.Input( 
                 id="input_filename", 
@@ -241,6 +241,15 @@ def createInteractivePlot(df, info = ""):
                 "margin-top": "15px", 
                 "display": "inline-block",
                 }),
+
+        # Clear table button
+        # html.Div([
+        #     html.Button('Clear table', id='clear_table', n_clicks=0)
+        #     ], style={
+        #         "margin-left": "15px", 
+        #         "margin-top": "15px", 
+        #         "display": "inline-block",
+        #         }),
 
         # data table
         html.Div([
@@ -280,11 +289,16 @@ def createInteractivePlot(df, info = ""):
 @app.callback(Output('plotly_figure', 'figure'),
     Input('dataFrame', 'data'),
     Input('selectedDropDown', 'value'),
-    Input('attrList', 'data'),
     Input('info', 'data'), 
     Input('hover_data', 'data')
     )
-def update_graph(dfjson, attribute, attrList, info, hover_data):
+def update_graph(dfjson, attribute, info, hover_data):
+
+    '''
+    Take in the raw data and selected information and create visualisation
+    '''
+
+    print("----- Updating plotting information -----")
 
     df = pd.read_json(dfjson, orient='split')
     dataColumns = list(df.columns)
@@ -298,6 +312,7 @@ def update_graph(dfjson, attribute, attrList, info, hover_data):
     r = 0.2
 
     if dims == 2:
+        print(f"     Creating 2D plotting for {attribute}")
         fig = px.scatter(df, x=df["Dim0"], y=df["Dim1"],
                 hover_data = hover_data,
                 color = attribute,
@@ -312,6 +327,7 @@ def update_graph(dfjson, attribute, attrList, info, hover_data):
                 ))
 
     elif dims == 3:
+        print(f"     Creating 3D plotting for {attribute}")
         fig = px.scatter_3d(df, x=df["Dim0"], y=df["Dim1"], z=df["Dim2"],
                 hover_data = hover_data,
                 color = attribute, 
@@ -331,7 +347,7 @@ def update_graph(dfjson, attribute, attrList, info, hover_data):
 
     fig.update_layout(width=1200, height=600, hovermode='closest')
 
-    print("---Web server launched---")
+    print("     Plot updated\n")
     return fig
 
 @app.callback(Output('submit_plot', 'n_clicks'),
@@ -344,6 +360,8 @@ def save_plot(click, fig, info, selectedAttr):
 
     if click:
 
+        print("----- Saving plot -----")
+
         '''
         # create the specific names for saving the plots
         if "Attribute" in info: 
@@ -355,8 +373,11 @@ def save_plot(click, fig, info, selectedAttr):
         '''
 
         dims = sum([l.find("axis")>0 for l in list(fig["layout"]["scene"])])
-        go.Figure(fig).write_html(f'{os.path.expanduser("~")}\\Downloads\\{info}_{dims}D_{selectedAttr}_{datetime.now().strftime("%y%m%d%H%M%S")}.html')
+        plotName = f'{os.path.expanduser("~")}\\Downloads\\{info}_{dims}D_{selectedAttr}_{datetime.now().strftime("%y%m%d%H%M%S")}.html'
+        go.Figure(fig).write_html(plotName)
         
+        print(f"     Plot saved at {plotName}\n")
+
     return 0
 
 # killing the dash server
@@ -364,9 +385,10 @@ def save_plot(click, fig, info, selectedAttr):
     Input('plotly_figure', 'figure'),
     Input('stop_button', 'n_clicks'), 
     Input('pid', 'data')
-)
-def update_exitButton(fig, n_clicks, pid):
-    if n_clicks > 0:
+    )
+def update_exitButton(fig, click, pid):
+    if click:
+        print("\n!!----- Stopping plottng, server disconnected -----!!\n")
         fig.update
         os.system(f"taskkill /IM {pid} /F") # this kills the app
         return
@@ -375,12 +397,14 @@ def update_exitButton(fig, n_clicks, pid):
 @app.callback(Output('selected_points_table', 'data'),
     State('selected_points_table', 'data'),
     Input('hover_data', 'data'),
-    Input('plotly_figure', 'clickData'))
+    Input('plotly_figure', 'clickData')
+    )
 def add_row(rows, hover_data, inputData):
     if inputData is None:
         # rows = None
         pass
     else:
+        print("----- Data added -----")
         d = {}
         for n, hd in enumerate(hover_data):
             d[hd] = inputData['points'][0]['customdata'][n]
@@ -395,24 +419,26 @@ def add_row(rows, hover_data, inputData):
 
 # action to perform when row is removed
 @app.callback(Output('output', 'children'),
-            Input('plotly_figure', 'figure'),
-            Input('selected_points_table', 'data_previous'),
-            State('selected_points_table', 'data'))
-def remove_rows(fig, previous, current):
+            Input('selected_points_table', 'data_previous')
+            )
+def remove_rows(previous):
     if previous is not None:
         return "" # [f'Just removed {row}' for row in previous if row not in current]
 
 # to save file name prompts and checks
 @app.callback(Output('input_filename', 'placeholder'),
     Output('input_filename', 'value'),
+    Output('submit_file', 'n_clicks'),
     Input('submit_file','n_clicks'),
     State('selected_points_table','data'),
     State('input_filename','value')
 )
-def save_file(count, tab_data, filename):
+def save_file(click, tab_data, filename):
 
     # Save data as long as there is information etc
-    if tab_data == [] or tab_data is None:
+    if not click:
+        placeholder = "Select data"
+    elif tab_data == [] or tab_data is None:
         placeholder = "Select data"
     elif filename == "":
         placeholder = "Set file name"
@@ -421,13 +447,28 @@ def save_file(count, tab_data, filename):
         if not os.path.exists(fileName):
             pd.DataFrame.from_records(tab_data).to_csv(fileName,index=False)
             placeholder = "File saved"
+            print(f"     File saved at {fileName}")
         else:
             placeholder = "File exists"
     
     # always reset the text
     output = ""
 
-    return placeholder, output
+    print(f"----- Save file, {placeholder}, {output} -----\n")
+    return placeholder, output, 0
+
+'''
+NOTE need to figure out how to combine outputs
+@app.callback(Output('clear_table', 'n_clicks'),
+    Output('selected_points_table', 'data'),
+    Input('clear_table', 'n_clicks'),
+    Input('selected_points_table', 'data'),
+    )
+def clear_table(click, table):
+
+    if click:
+        return 0, []
+'''
 
 # ----------- Data processing and visualisation (main function) ----------
 
@@ -449,15 +490,8 @@ def multiDimAnalysis(excelFile: str, sheetName: str, dims: int):
     print(f"Loading {latestcsv} for plotting")
 
     app = createInteractivePlot(posdf, sheetName)
-    # os.system("start \"\" http://127.0.0.1:8050/")
     launchApp(app)
-    webbrowser.open("http://127.0.0.1:8050/", new = 0, autoraise = True)
-    try:
-        app.run_server(debug = False)          
-    except Exception as e:
-        print(e)
-        # relaunch the application
-        app.run_server(debug = False)     
+
 
 if __name__ == "__main__":
    
