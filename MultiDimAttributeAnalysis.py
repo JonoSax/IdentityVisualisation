@@ -69,6 +69,7 @@ def similarityCalculation(excelFile: str, sheetName: str, dims: int):
         print("     Excel file successfully loaded")
 
         # check if the data has already been calculated
+        joinedCategoryHeaders =  '_'.join(sorted(categoriesHeader))
         csvName = f"{sheetName}_{dims}_{joinedCategoryHeaders}"
         csvFiles = sorted(glob(f"{os.path.dirname(excelFile)}\\{csvName}*.csv"))
         calculateMDS = len(csvFiles) == 0
@@ -428,7 +429,7 @@ if __name__ == "__main__":
         multiDimAnalysis(str(workbook), str(worksheet), int(dims))
     else:
         workbook = "C:\\Users\\ResheJ\\Downloads\\WorkBook-Blankv6.xlsm"
-        worksheet = "SimilarityScoreIdentities"
-        dim = 3
+        worksheet = "SimilarityScoreAttributes"
+        dim = 2
         
         multiDimAnalysis(workbook, worksheet, dim)
