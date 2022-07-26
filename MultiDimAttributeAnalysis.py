@@ -13,6 +13,7 @@ import os
 from datetime import datetime
 import dash_daq as daq
 import webbrowser
+import plotly.graph_objects as go
 
 # https://dash.plotly.com/interactive-graphing
 # https://scikit-learn.org/stable/auto_examples/manifold/plot_mds.html 
@@ -22,7 +23,8 @@ app = Dash(__name__, external_stylesheets=external_stylesheets)
 
 # ---------- MDS calculations ----------
 
-def getExcelInfo(posdf):
+# read the sheet data from the excel sheet and get header/info 
+def getdfInfo(posdf):
 
     # find which row/column the data start
     start = min(np.where(posdf[:, 0]!=False)[0]) + 1
@@ -51,6 +53,7 @@ def getExcelInfo(posdf):
 
     return data, categories, categoriesHeader
 
+# perform MDS fitting
 def similarityCalculation(excelFile: str, sheetName: str, dims: int):
 
     '''
@@ -64,7 +67,7 @@ def similarityCalculation(excelFile: str, sheetName: str, dims: int):
         posdf = pd.read_excel(excelFile, sheet_name=sheetName, header=None).fillna(False).to_numpy()
 
         # we need the excel sheet to do the processing
-        data, categories, categoriesHeader = getExcelInfo(posdf)
+        data, categories, categoriesHeader = getdfInfo(posdf)
 
         print("     Excel file successfully loaded")
 
@@ -87,7 +90,7 @@ def similarityCalculation(excelFile: str, sheetName: str, dims: int):
         if calculateMDS:
             print(f"     Opening {sheetName} worksheet")
             posdf = pd.read_excel(excelFile, sheet_name=sheetName, header=None).fillna(False).to_numpy()
-            data, categories, categoriesHeader = getExcelInfo(posdf)
+            data, categories, categoriesHeader = getdfInfo(posdf)
 
     if calculateMDS:
 
@@ -106,7 +109,7 @@ def similarityCalculation(excelFile: str, sheetName: str, dims: int):
             random_state=np.random.RandomState(seed=3),
             dissimilarity="precomputed",
             n_jobs=1, 
-            verbose=2
+            verbose=False
         )
         pos = mds.fit(1-similarities).embedding_
         iters = mds.n_iter_
@@ -145,6 +148,15 @@ def similarityCalculation(excelFile: str, sheetName: str, dims: int):
 
 # ---------- Plotly visualisation launched in Dash webserver ----------
 
+def launchApp(app):
+    webbrowser.open("http://127.0.0.1:8050/", new = 0, autoraise = True)
+    try:
+        app.run_server(debug = False)
+    except Exception as e:
+        print(e)
+        launchApp(app)
+
+# create the dash application
 def createInteractivePlot(df, info = ""):
 
     # get the list of desireable attributes
@@ -196,42 +208,58 @@ def createInteractivePlot(df, info = ""):
             )
         ], style={'width': '100%', 'height':'100%', 'display': 'inline-block', 'padding': '0 10'}),
     
-        # saving figure toggle
-        daq.ToggleSwitch(
-                id='my-toggle-switch',
-                value=False
-            ), 
-            html.Div(id='toggle_switch'),
+        # Save figure button
+        html.Div([
+            html.Button('Save plot', id='submit_plot', n_clicks=0)
+            ], style={
+                "margin-left": "15px", 
+                "margin-top": "15px", 
+                "display": "inline-block",
+                }),
 
         # plotly stop running button
-        daq.StopButton(
-                id='my-stop-button-1',
-                label='Default',
+        html.Div([
+            daq.StopButton(
+                id='stop_button',
                 n_clicks=0
-            ), 
-            html.Div(id='stop_button'),
+            )], style={
+                "margin-left": "15px", 
+                "margin-top": "15px", 
+                "display": "inline-block",
+                }),
 
-        dcc.Input( 
-            id="input_filename", 
-            type="text", 
-            placeholder="File name", 
-            value = ""), 
-        html.Button('Save file', id='submit_file', n_clicks=0), 
+        # Save file button
+        html.Div([
+            dcc.Input( 
+                id="input_filename", 
+                type="text", 
+                placeholder="File name", 
+                value = ""), 
+            html.Button('Save file', id='submit_file', n_clicks=0)
+            ], style={
+                "margin-left": "15px", 
+                "margin-top": "15px", 
+                "display": "inline-block",
+                }),
 
         # data table
-        dash_table.DataTable(
-                id='selected_points_table',
-                columns=[{
-                    'name': '{}'.format(a),
-                    'id': '{}'.format(a),
-                } for a in hover_data],
-                # data=[{a: "" for a in hover_data}],
-                editable=True,
-                row_deletable=True,
-                # export_format='xlsx',
-                # export_headers='display',
-                # merge_duplicate_headers=True
-            ),
+        html.Div([
+            dash_table.DataTable(
+                    id='selected_points_table',
+                    columns=[{
+                        'name': '{}'.format(a),
+                        'id': '{}'.format(a),
+                    } for a in hover_data],
+                    # data=[{a: "" for a in hover_data}],
+                    editable=True,
+                    row_deletable=True,
+                    # export_format='xlsx',
+                    # export_headers='display',
+                    # merge_duplicate_headers=True
+                )], style={
+                "margin-left": "15px", 
+                "margin-top": "15px", 
+                }),
 
         # data being transferred to call back functions
         dcc.Store(data = df.to_json(orient='split'), id = "dataFrame"),
@@ -246,16 +274,17 @@ def createInteractivePlot(df, info = ""):
     print("     Web app created")
     return app
     
+# ------ callbacks ------
+
 # plotly figure updates
 @app.callback(Output('plotly_figure', 'figure'),
     Input('dataFrame', 'data'),
     Input('selectedDropDown', 'value'),
     Input('attrList', 'data'),
-    Input('my-toggle-switch', 'value'),
     Input('info', 'data'), 
     Input('hover_data', 'data')
     )
-def update_graph(dfjson, attribute, attrList, toggle, info, hover_data):
+def update_graph(dfjson, attribute, attrList, info, hover_data):
 
     df = pd.read_json(dfjson, orient='split')
     dataColumns = list(df.columns)
@@ -300,44 +329,47 @@ def update_graph(dfjson, attribute, attrList, toggle, info, hover_data):
     # allow for multiple point selection
     fig.update_layout(clickmode='event+select')
 
-    # create the specific names for saving the plots
-    if "Attribute" in info: 
-        # for attribute analysis, the combination is important. Highligh the specific
-        # attribute with ##
-        selectedAttr = [a.replace(attribute, f"#{attribute}#") for a in sorted(attrList)]
-    else:
-        selectedAttr = attribute
-
     fig.update_layout(width=1200, height=600, hovermode='closest')
 
-    if toggle:
-        fig.write_html(f'{os.path.expanduser("~")}\\Downloads\\{info}_{dims}D_{selectedAttr}_{datetime.now().strftime("%y%m%d%H%M%S")}.html')
-        
     print("---Web server launched---")
     return fig
 
-# toggle to save data
-@app.callback(Output('toggle_switch', 'children'),
-    Input('my-toggle-switch', 'value'),
+@app.callback(Output('submit_plot', 'n_clicks'),
+    Input('submit_plot', 'n_clicks'),
+    Input('plotly_figure', 'figure'),
+    Input('info', 'data'),
     Input('selectedDropDown', 'value')
-)
-def update_output(value, attribute):
-    if value:
-        return f"Saving {attribute} plot"
-    else:
-        return "Not saving plots"
+    )
+def save_plot(click, fig, info, selectedAttr):
+
+    if click:
+
+        '''
+        # create the specific names for saving the plots
+        if "Attribute" in info: 
+            # for attribute analysis, the combination is important. Highligh the specific
+            # attribute with ##
+            selectedAttr = [a.replace(attribute, f"#{attribute}#") for a in sorted(attrList)]
+        else:
+            selectedAttr = attribute
+        '''
+
+        dims = sum([l.find("axis")>0 for l in list(fig["layout"]["scene"])])
+        go.Figure(fig).write_html(f'{os.path.expanduser("~")}\\Downloads\\{info}_{dims}D_{selectedAttr}_{datetime.now().strftime("%y%m%d%H%M%S")}.html')
+        
+    return 0
 
 # killing the dash server
 @app.callback(Output('stop_button', 'children'),
     Input('plotly_figure', 'figure'),
-    Input('my-stop-button-1', 'n_clicks'), 
+    Input('stop_button', 'n_clicks'), 
     Input('pid', 'data')
 )
 def update_exitButton(fig, n_clicks, pid):
     if n_clicks > 0:
         fig.update
         os.system(f"taskkill /IM {pid} /F") # this kills the app
-        return 
+        return
 
 # action to perform when a row is added
 @app.callback(Output('selected_points_table', 'data'),
@@ -370,13 +402,14 @@ def remove_rows(fig, previous, current):
     if previous is not None:
         return "" # [f'Just removed {row}' for row in previous if row not in current]
 
+# to save file name prompts and checks
 @app.callback(Output('input_filename', 'placeholder'),
     Output('input_filename', 'value'),
     Input('submit_file','n_clicks'),
     State('selected_points_table','data'),
     State('input_filename','value')
 )
-def updateout(count, tab_data, filename):
+def save_file(count, tab_data, filename):
 
     # Save data as long as there is information etc
     if tab_data == [] or tab_data is None:
@@ -396,9 +429,9 @@ def updateout(count, tab_data, filename):
 
     return placeholder, output
 
-
 # ----------- Data processing and visualisation (main function) ----------
 
+# initiate the processing, visualisation and local server
 def multiDimAnalysis(excelFile: str, sheetName: str, dims: int):
 
     '''
@@ -417,8 +450,14 @@ def multiDimAnalysis(excelFile: str, sheetName: str, dims: int):
 
     app = createInteractivePlot(posdf, sheetName)
     # os.system("start \"\" http://127.0.0.1:8050/")
+    launchApp(app)
     webbrowser.open("http://127.0.0.1:8050/", new = 0, autoraise = True)
-    app.run_server(debug = False)          
+    try:
+        app.run_server(debug = False)          
+    except Exception as e:
+        print(e)
+        # relaunch the application
+        app.run_server(debug = False)     
 
 if __name__ == "__main__":
    
@@ -429,7 +468,7 @@ if __name__ == "__main__":
         multiDimAnalysis(str(workbook), str(worksheet), int(dims))
     else:
         workbook = "C:\\Users\\ResheJ\\Downloads\\WorkBook-Blankv6.xlsm"
-        worksheet = "SimilarityScoreAttributes"
-        dim = 2
+        worksheet = "SimilarityScoreIdentities"
+        dim = 3
         
         multiDimAnalysis(workbook, worksheet, dim)
