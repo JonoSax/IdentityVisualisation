@@ -109,11 +109,9 @@ def similarityCalculation(excelFile: str, sheetName: str, dims: int):
             random_state=np.random.RandomState(seed=3),
             dissimilarity="precomputed",
             n_jobs=1, 
-            verbose=False
+            verbose=True
         )
         pos = mds.fit(1-similarities).embedding_
-        iters = mds.n_iter_
-        disparities = mds.stress_
 
         print(f"     Fitting complete")
 
@@ -168,8 +166,6 @@ def createInteractivePlot(df, info = ""):
     # attrList = [l for l in sorted(formatColumns) if not (l.lower().startswith("dim") or l.lower().startswith("unnamed"))]
     hover_data = [d for d in sorted(list(df.columns)) if (d.lower().find("unnamed") == -1 and d.lower().find("dim") == -1)]
     attrList = [r.replace(r, f"LONG:{r}") if len(df[r].unique()) > 100 else r for r in hover_data ]
-    try: attrList.remove("Count")
-    except: pass
 
     # for values which are numeric, convert their values into a ranked position so that 
     # on the heat maps it can show up easily
@@ -501,8 +497,8 @@ if __name__ == "__main__":
 
         multiDimAnalysis(str(workbook), str(worksheet), int(dims))
     else:
-        workbook = "C:\\Users\\ResheJ\\Downloads\\WorkBook-Blankv6.xlsm"
-        worksheet = "SimilarityScoreIdentities"
+        workbook = "C:\\Users\\ResheJ\\Downloads\\WorkBook-Hashedv1.xlsm"
+        worksheet = "SimilarityScoreAttributes"
         dim = 3
         
         multiDimAnalysis(workbook, worksheet, dim)
