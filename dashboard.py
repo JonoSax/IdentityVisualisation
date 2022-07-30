@@ -1,0 +1,331 @@
+import pandas as pd
+import plotly.express as px
+from dash import Dash, html, dcc, Input, Output, State, dash_table
+import pandas as pd
+import os
+from datetime import datetime
+import dash_daq as daq
+import webbrowser
+import plotly.graph_objects as go
+
+external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
+app = Dash(__name__, external_stylesheets=external_stylesheets)
+
+def launchApp(posdf, sheetName):
+    app = createInteractivePlot(posdf, sheetName)
+    webbrowser.open("http://127.0.0.1:8050/", new = 0, autoraise = True)
+    try:
+        app.run_server(debug = False)
+    except Exception as e:
+        print(e)
+        launchApp(app)
+
+# create the dash application
+def createInteractivePlot(df, info = ""):
+
+    # get the list of desireable attributes
+    # Remove the dim values
+    # Remove any attributes with over 100 unique values (makes plotly run too slow and clutters the graphs)
+    # Remove the key words "Count" and "Unnamed: 0" which are artefacts of the plotting
+
+    print("---Creating web server for plotting---")
+    # attrList = [l for l in sorted(formatColumns) if not (l.lower().startswith("dim") or l.lower().startswith("unnamed"))]
+    hover_data = [d for d in sorted(list(df.columns)) if (d.lower().find("unnamed") == -1 and d.lower().find("dim") == -1)]
+    attrList = [r.replace(r, f"{r}: {len(df[r].unique())}") for r in hover_data ]
+
+    # for values which are numeric, convert their values into a ranked position so that 
+    # on the heat maps it can show up easily
+    # NOTE this is not actually very useful as it assumes that data that is chronological is related
+    '''
+    dfSelect = df[hover_data]
+    dfRanked = dfSelect.rank(numeric_only = True, method = 'dense').astype(int)
+    df[list(dfRanked.columns)] = dfRanked
+    '''
+
+    # make data point selection
+    # https://dash.plotly.com/interactive-graphing
+    # https://dash.plotly.com/datatable
+    # https://dash.plotly.com/datatable/editable 
+
+
+    app.layout = html.Div([
+        # drop down list of attribute options detected from data 
+        html.Div([
+            html.Div([
+                dcc.Dropdown(
+                    attrList,
+                    [a for a in attrList if a.find("LONG") == -1][0],     # ensure an attribute which isn't LONG is selected
+                    id='selectedDropDown',
+                )
+            ],
+            style={'width': '49%', 'display': 'inline-block'})
+        ], style={
+            'padding': '0px 5px'
+        }),
+
+        # plotly figure
+        html.Div([
+            dcc.Graph(
+                id='plotly_figure'
+            )
+        ], style={'width': '100%', 'height':'100%', 'display': 'inline-block', 'padding': '0 10'}),
+    
+        # Save figure button
+        html.Div([
+            html.Button('Save plot', id='submit_plot', n_clicks=0)
+            ], style={
+                "margin-left": "15px", 
+                "margin-top": "15px", 
+                "display": "inline-block",
+                }),
+
+        # plotly stop running button
+        html.Div([
+            daq.StopButton(
+                id='stop_button',
+                n_clicks=0
+            )], style={
+                "margin-left": "15px", 
+                "margin-top": "15px", 
+                "display": "inline-block",
+                }),
+
+        # Save file button and text entry
+        html.Div([
+            dcc.Input( 
+                id="input_filename", 
+                type="text", 
+                placeholder="File name", 
+                value = ""), 
+            html.Button('Save file', id='submit_file', n_clicks=0)
+            ], style={
+                "margin-left": "15px", 
+                "margin-top": "15px", 
+                "display": "inline-block",
+                }),
+
+        # Clear table button
+        # html.Div([
+        #     html.Button('Clear table', id='clear_table', n_clicks=0)
+        #     ], style={
+        #         "margin-left": "15px", 
+        #         "margin-top": "15px", 
+        #         "display": "inline-block",
+        #         }),
+
+        # data table
+        html.Div([
+            dash_table.DataTable(
+                    id='selected_points_table',
+                    columns=[{
+                        'name': '{}'.format(a),
+                        'id': '{}'.format(a),
+                    } for a in hover_data],
+                    # data=[{a: "" for a in hover_data}],
+                    editable=True,
+                    row_deletable=True,
+                    # export_format='xlsx',
+                    # export_headers='display',
+                    # merge_duplicate_headers=True
+                )], style={
+                "margin-left": "15px", 
+                "margin-top": "15px", 
+                }),
+
+        # data being transferred to call back functions
+        dcc.Store(data = df.to_json(orient='split'), id = "dataFrame"),
+        dcc.Store(data = attrList, id = "attrList"),
+        dcc.Store(data = info, id = "info"),
+        dcc.Store(data = os.getpid(), id = "pid"),
+        dcc.Store(data = hover_data, id = "hover_data"),
+
+        html.Div(id='output')
+    ])
+
+    print("     Web app created")
+    return app
+
+# plotly figure updates
+@app.callback(Output('plotly_figure', 'figure'),
+    Input('dataFrame', 'data'),
+    Input('selectedDropDown', 'value'),
+    Input('info', 'data'), 
+    Input('hover_data', 'data')
+    )
+def update_graph(dfjson, attribute, info, hover_data):
+
+    '''
+    Take in the raw data and selected information and create visualisation
+    '''
+
+    print("----- Updating plotting information -----")
+
+    df = pd.read_json(dfjson, orient='split')
+    dataColumns = list(df.columns)
+    dims = sum(1 for x in list(dataColumns) if x.startswith ("Dim"))
+
+    # remove the count info to match to the data frame
+    attribute = attribute.split(":")[0]
+    plotTitle = f"{info} {dims}D visualising {attribute} for {len(df)} data points"
+
+    # set the constant for x, y, z scaling (0 = exact fit for data, 0.1 = 10% larger etc)
+    r = 0.2
+
+    if dims == 2:
+        print(f"     Creating 2D plotting for {attribute}")
+        fig = px.scatter(df, x=df["Dim0"], y=df["Dim1"],
+                hover_data = hover_data,
+                color = attribute,
+                title = plotTitle, 
+                hover_name= attribute
+                )
+        
+        fig.update_layout(
+            scene = dict(
+                xaxis = dict(range=[min(df["Dim0"])*(1-r), max(df["Dim0"])*(1+r)]),
+                yaxis = dict(range=[min(df["Dim1"])*(1-r), max(df["Dim1"])*(1+r)])
+                ))
+
+    elif dims == 3:
+        print(f"     Creating 3D plotting for {attribute}")
+        fig = px.scatter_3d(df, x=df["Dim0"], y=df["Dim1"], z=df["Dim2"],
+                hover_data = hover_data,
+                color = attribute, 
+                title = plotTitle, 
+                hover_name= attribute
+                )
+
+        fig.update_layout(
+            scene = dict(
+                xaxis = dict(range=[min(df["Dim0"])*(1-r), max(df["Dim0"])*(1+r)]),
+                yaxis = dict(range=[min(df["Dim1"])*(1-r), max(df["Dim1"])*(1+r)]),
+                zaxis = dict(range=[min(df["Dim2"])*(1-r), max(df["Dim2"])*(1+r)])
+                ))
+
+    # allow for multiple point selection
+    fig.update_layout(clickmode='event+select')
+
+    fig.update_layout(width=1200, height=600, hovermode='closest')
+
+    print("     Plot updated\n")
+    return fig
+
+@app.callback(Output('submit_plot', 'n_clicks'),
+    Input('submit_plot', 'n_clicks'),
+    Input('plotly_figure', 'figure'),
+    Input('info', 'data'),
+    Input('selectedDropDown', 'value')
+    )
+def save_plot(click, fig, info, selectedAttr):
+
+    if click:
+
+        print("----- Saving plot -----")
+
+        '''
+        # create the specific names for saving the plots
+        if "Attribute" in info: 
+            # for attribute analysis, the combination is important. Highligh the specific
+            # attribute with ##
+            selectedAttr = [a.replace(attribute, f"#{attribute}#") for a in sorted(attrList)]
+        else:
+            selectedAttr = attribute
+        '''
+
+        dims = sum([l.find("axis")>0 for l in list(fig["layout"]["scene"])])
+        plotName = f'{os.path.expanduser("~")}\\Downloads\\{info}_{dims}D_{selectedAttr}_{datetime.now().strftime("%y%m%d%H%M%S")}.html'
+        go.Figure(fig).write_html(plotName)
+        
+        print(f"     Plot saved at {plotName}\n")
+
+    return 0
+
+# killing the dash server
+@app.callback(Output('stop_button', 'children'),
+    Input('plotly_figure', 'figure'),
+    Input('stop_button', 'n_clicks'), 
+    Input('pid', 'data')
+    )
+def update_exitButton(fig, click, pid):
+    if click:
+        print("\n!!----- Stopping plottng, server disconnected -----!!\n")
+        fig.update
+        os.system(f"taskkill /IM {pid} /F") # this kills the app
+        return
+
+# action to perform when a row is added
+@app.callback(Output('selected_points_table', 'data'),
+    State('selected_points_table', 'data'),
+    Input('hover_data', 'data'),
+    Input('plotly_figure', 'clickData')
+    )
+def add_row(rows, hover_data, inputData):
+    if inputData is None:
+        # rows = None
+        pass
+    else:
+        print("----- Data added -----")
+        d = {}
+        for n, hd in enumerate(hover_data):
+            d[hd] = inputData['points'][0]['customdata'][n]
+        if rows == [] or rows is None:
+            rows = [d]
+        elif all(rows[-1][k] == "" for k in list(rows[-1])): 
+            rows = [d]
+        else:
+            rows.append(d)
+    
+    return rows
+
+# action to perform when row is removed
+@app.callback(Output('output', 'children'),
+            Input('selected_points_table', 'data_previous')
+            )
+def remove_rows(previous):
+    if previous is not None:
+        return "" # [f'Just removed {row}' for row in previous if row not in current]
+
+# to save file name prompts and checks
+@app.callback(Output('input_filename', 'placeholder'),
+    Output('input_filename', 'value'),
+    Output('submit_file', 'n_clicks'),
+    Input('submit_file','n_clicks'),
+    State('selected_points_table','data'),
+    State('input_filename','value')
+)
+def save_file(click, tab_data, filename):
+
+    # Save data as long as there is information etc
+    if not click:
+        placeholder = "Select data"
+    elif tab_data == [] or tab_data is None:
+        placeholder = "Select data"
+    elif filename == "":
+        placeholder = "Set file name"
+    else:
+        fileName = f"{os.path.expanduser('~')}\\Downloads\\{filename}.csv"
+        if not os.path.exists(fileName):
+            pd.DataFrame.from_records(tab_data).to_csv(fileName,index=False)
+            placeholder = "File saved"
+            print(f"     File saved at {fileName}")
+        else:
+            placeholder = "File exists"
+    
+    # always reset the text
+    output = ""
+
+    print(f"----- Save file, {placeholder}, {output} -----\n")
+    return placeholder, output, 0
+
+'''
+NOTE need to figure out how to combine outputs
+@app.callback(Output('clear_table', 'n_clicks'),
+    Output('selected_points_table', 'data'),
+    Input('clear_table', 'n_clicks'),
+    Input('selected_points_table', 'data'),
+    )
+def clear_table(click, table):
+
+    if click:
+        return 0, []
+'''
