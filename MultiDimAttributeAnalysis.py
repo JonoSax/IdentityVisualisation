@@ -4,467 +4,139 @@ import sys
 import numpy as np
 from sklearn import manifold
 from glob import glob
-# from sklearn.metrics import euclidean_distances
-# from sklearn.decomposition import PCA
-import plotly.express as px
-from dash import Dash, html, dcc, Input, Output, State, dash_table
 import pandas as pd
 import os
+from os.path import dirname as up
 from datetime import datetime
-import dash_daq as daq
-import webbrowser
-import plotly.graph_objects as go
+from dashboard import launchApp
+from dataModel import DataModel
 
 # https://dash.plotly.com/interactive-graphing
 # https://scikit-learn.org/stable/auto_examples/manifold/plot_mds.html 
 
-external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
-app = Dash(__name__, external_stylesheets=external_stylesheets)
 
 # ---------- MDS calculations ----------
 
 # read the sheet data from the excel sheet and get header/info 
-def getdfInfo(posdf):
-
-    # find which row/column the data start
-    start = min(np.where(posdf[:, 0]!=False)[0]) + 1
-
-    # get the category information
-    categoriesRaw = [d for d in posdf[start::, :start]]
-    categoriesArray = np.array(categoriesRaw)
-    # categoriesHeader = [c.replace(" ", "") for c in list(posdf[start-1, 0:start]) if type(c) == str]
-    categoriesHeader = [c.replace(" ", "") for c in list(posdf[start-1, 0:start]) if type(c) == str]
-
-    print(f"     {len(categoriesHeader)} categories extracted")
-
-    # remove the categories which are empty (ie false)
-    categoriesArray = [categoriesArray[:, n] for n in range(categoriesArray.shape[1]) if (categoriesArray[:, n]  != False).all()]
-    categories = np.transpose(np.array(categoriesArray))
-
-    # find which row/column the data start
-    start = min(np.where(posdf[:, 0]!=False)[0]) + 1
-    data = posdf[start::, start::]
-    dimY, dimX = np.where(data=="Dimensions")
-    if len(dimY) >0 and len(dimX) >0:
-        data[dimY[0], dimX[0]:(dimX[0]+2)] = False           # search for and remove the dimensions free text
-    data[np.where(data==False)] = 1
-    data = data.astype(np.float64)
-    print(f"     {len(data)} data points extracted")
-
-    return data, categories, categoriesHeader
-
-# perform MDS fitting
-def similarityCalculation(excelFile: str, sheetName: str, dims: int):
+class ExcelData(DataModel):
 
     '''
-    Perform the dimensionality reduction
+    Perform the data modelling and analysis for information stored in an excel sheet
     '''
 
-    print("---similarityCalculation beginning---")
-
-    if "attributes" in sheetName.lower():
-        print(f"     Loading {sheetName} from {excelFile}")
-        posdf = pd.read_excel(excelFile, sheet_name=sheetName, header=None).fillna(False).to_numpy()
-
-        # we need the excel sheet to do the processing
-        data, categories, categoriesHeader = getdfInfo(posdf)
-
-        print("     Excel file successfully loaded")
-
-        # check if the data has already been calculated
-        joinedCategoryHeaders =  '_'.join(sorted(categoriesHeader))
-        csvName = f"{sheetName}_{dims}_{joinedCategoryHeaders}"
-        csvFiles = sorted(glob(f"{os.path.dirname(excelFile)}\\{csvName}*.csv"))
-        calculateMDS = len(csvFiles) == 0
-
-    elif "identities" in sheetName.lower():
-
-        # attribute combinations are not important for identity data
-        csvName = f"{sheetName}_{dims}"
-
-        # identities contain all information, just check the dims are calculated for the right sheet
-        csvFiles = sorted(glob(f"{os.path.dirname(excelFile)}\\{csvName}*.csv"))
-        calculateMDS = len(csvFiles) == 0
-
-        # only load the identity excel sheet if we know that we have to calculate the info
-        if calculateMDS:
-            print(f"     Opening {sheetName} worksheet")
-            posdf = pd.read_excel(excelFile, sheet_name=sheetName, header=None).fillna(False).to_numpy()
-            data, categories, categoriesHeader = getdfInfo(posdf)
-
-    if calculateMDS:
-
-        print("     No relevant calculations found, new MDS calculation beginning")
-                
-        # create the pre-computed similartiies matrix
-        similarities = data * data.transpose()
-
-        # perform dimensionality reduction
-        print("     Starting mds fit")
-
-        mds = manifold.MDS( 
-            n_components=dims, 
-            # max_iter=3000,
-            eps=1e-3,
-            random_state=np.random.RandomState(seed=3),
-            dissimilarity="precomputed",
-            n_jobs=1, 
-            verbose=True
-        )
-        pos = mds.fit(1-similarities).embedding_
-
-        print(f"     Fitting complete")
-
-        # get n-dimension labels
-        dimNames = [f"Dim{n}" for n in range(len(pos[0]))]
-
-        joinedCategoryHeaders =  '_'.join(sorted(categoriesHeader))
-        posdf = pd.DataFrame(np.hstack([pos, categories]), columns = [*dimNames, *categoriesHeader])
-
-        # merge all identity information if available. Remove unnecessary columns and add warnings to long attribute lists
-        if "Identities" in sheetName: 
-            posidentitiesRaw = pd.read_excel(excelFile, sheet_name="IdentityInformation")
-            selectColums = [r for r in list(posidentitiesRaw.columns) if r.lower().find("unnamed") == -1]
-            posidentitiesSelect = posidentitiesRaw[selectColums]
-            formatColumns0 = [r.replace(" ", "") for r in list(posidentitiesSelect.columns)]
-            posidentities = posidentitiesSelect.set_axis(formatColumns0, axis=1, inplace=False)
-            posdf = posdf.merge(posidentities, on=categoriesHeader[0], how='left')
-
-        # date stamp the file
-        dir = os.path.dirname(excelFile)
-        now = datetime.now()
-        dt_string = now.strftime("%Y%m%d_%H%M%S")
-        csvPath = f"{dir}\\{csvName}_{dt_string}.csv"
-        posdf.to_csv(csvPath)
-
-    else:
-        # return the most recently created version
-        csvPath = csvFiles[-1]
-        print(f"     Loading {sheetName} from {excelFile}")
-
-    return csvPath
-
-# ---------- Plotly visualisation launched in Dash webserver ----------
-
-def launchApp(app):
-    webbrowser.open("http://127.0.0.1:8050/", new = 0, autoraise = True)
-    try:
-        app.run_server(debug = False)
-    except Exception as e:
-        print(e)
-        launchApp(app)
-
-# create the dash application
-def createInteractivePlot(df, info = ""):
-
-    # get the list of desireable attributes
-    # Remove the dim values
-    # Remove any attributes with over 100 unique values (makes plotly run too slow and clutters the graphs)
-    # Remove the key words "Count" and "Unnamed: 0" which are artefacts of the plotting
-
-    print("---Creating web server for plotting---")
-    # attrList = [l for l in sorted(formatColumns) if not (l.lower().startswith("dim") or l.lower().startswith("unnamed"))]
-    hover_data = [d for d in sorted(list(df.columns)) if (d.lower().find("unnamed") == -1 and d.lower().find("dim") == -1)]
-    attrList = [r.replace(r, f"LONG:{r}") if len(df[r].unique()) > 100 else r for r in hover_data ]
-
-    # for values which are numeric, convert their values into a ranked position so that 
-    # on the heat maps it can show up easily
-    # NOTE this is not actually very useful as it assumes that data that is chronological is related
-    '''
-    dfSelect = df[hover_data]
-    dfRanked = dfSelect.rank(numeric_only = True, method = 'dense').astype(int)
-    df[list(dfRanked.columns)] = dfRanked
-    '''
-
-    # make data point selection
-    # https://dash.plotly.com/interactive-graphing
-    # https://dash.plotly.com/datatable
-    # https://dash.plotly.com/datatable/editable 
-
-
-    app.layout = html.Div([
-        # drop down list of attribute options detected from data 
-        html.Div([
-            html.Div([
-                dcc.Dropdown(
-                    attrList,
-                    [a for a in attrList if a.find("LONG") == -1][0],     # ensure an attribute which isn't LONG is selected
-                    id='selectedDropDown',
-                )
-            ],
-            style={'width': '49%', 'display': 'inline-block'})
-        ], style={
-            'padding': '0px 5px'
-        }),
-
-        # plotly figure
-        html.Div([
-            dcc.Graph(
-                id='plotly_figure'
-            )
-        ], style={'width': '100%', 'height':'100%', 'display': 'inline-block', 'padding': '0 10'}),
-    
-        # Save figure button
-        html.Div([
-            html.Button('Save plot', id='submit_plot', n_clicks=0)
-            ], style={
-                "margin-left": "15px", 
-                "margin-top": "15px", 
-                "display": "inline-block",
-                }),
-
-        # plotly stop running button
-        html.Div([
-            daq.StopButton(
-                id='stop_button',
-                n_clicks=0
-            )], style={
-                "margin-left": "15px", 
-                "margin-top": "15px", 
-                "display": "inline-block",
-                }),
-
-        # Save file button and text entry
-        html.Div([
-            dcc.Input( 
-                id="input_filename", 
-                type="text", 
-                placeholder="File name", 
-                value = ""), 
-            html.Button('Save file', id='submit_file', n_clicks=0)
-            ], style={
-                "margin-left": "15px", 
-                "margin-top": "15px", 
-                "display": "inline-block",
-                }),
-
-        # Clear table button
-        # html.Div([
-        #     html.Button('Clear table', id='clear_table', n_clicks=0)
-        #     ], style={
-        #         "margin-left": "15px", 
-        #         "margin-top": "15px", 
-        #         "display": "inline-block",
-        #         }),
-
-        # data table
-        html.Div([
-            dash_table.DataTable(
-                    id='selected_points_table',
-                    columns=[{
-                        'name': '{}'.format(a),
-                        'id': '{}'.format(a),
-                    } for a in hover_data],
-                    # data=[{a: "" for a in hover_data}],
-                    editable=True,
-                    row_deletable=True,
-                    # export_format='xlsx',
-                    # export_headers='display',
-                    # merge_duplicate_headers=True
-                )], style={
-                "margin-left": "15px", 
-                "margin-top": "15px", 
-                }),
-
-        # data being transferred to call back functions
-        dcc.Store(data = df.to_json(orient='split'), id = "dataFrame"),
-        dcc.Store(data = attrList, id = "attrList"),
-        dcc.Store(data = info, id = "info"),
-        dcc.Store(data = os.getpid(), id = "pid"),
-        dcc.Store(data = hover_data, id = "hover_data"),
-
-        html.Div(id='output')
-    ])
-
-    print("     Web app created")
-    return app
-    
-# ------ callbacks ------
-
-# plotly figure updates
-@app.callback(Output('plotly_figure', 'figure'),
-    Input('dataFrame', 'data'),
-    Input('selectedDropDown', 'value'),
-    Input('info', 'data'), 
-    Input('hover_data', 'data')
-    )
-def update_graph(dfjson, attribute, info, hover_data):
-
-    '''
-    Take in the raw data and selected information and create visualisation
-    '''
-
-    print("----- Updating plotting information -----")
-
-    df = pd.read_json(dfjson, orient='split')
-    dataColumns = list(df.columns)
-    dims = sum(1 for x in list(dataColumns) if x.startswith ("Dim"))
-    plotTitle = f"{info} {dims}D visualising {attribute} for {len(df)} data points"
-
-    # if there is a warning "LONG", remove so it matches the dataframe
-    attribute = attribute.replace("LONG:", "")
-
-    # set the constant for x, y, z scaling (0 = exact fit for data, 0.1 = 10% larger etc)
-    r = 0.2
-
-    if dims == 2:
-        print(f"     Creating 2D plotting for {attribute}")
-        fig = px.scatter(df, x=df["Dim0"], y=df["Dim1"],
-                hover_data = hover_data,
-                color = attribute,
-                title = plotTitle, 
-                hover_name= attribute
-                )
-        
-        fig.update_layout(
-            scene = dict(
-                xaxis = dict(range=[min(df["Dim0"])*(1-r), max(df["Dim0"])*(1+r)]),
-                yaxis = dict(range=[min(df["Dim1"])*(1-r), max(df["Dim1"])*(1+r)])
-                ))
-
-    elif dims == 3:
-        print(f"     Creating 3D plotting for {attribute}")
-        fig = px.scatter_3d(df, x=df["Dim0"], y=df["Dim1"], z=df["Dim2"],
-                hover_data = hover_data,
-                color = attribute, 
-                title = plotTitle, 
-                hover_name= attribute
-                )
-
-        fig.update_layout(
-            scene = dict(
-                xaxis = dict(range=[min(df["Dim0"])*(1-r), max(df["Dim0"])*(1+r)]),
-                yaxis = dict(range=[min(df["Dim1"])*(1-r), max(df["Dim1"])*(1+r)]),
-                zaxis = dict(range=[min(df["Dim2"])*(1-r), max(df["Dim2"])*(1+r)])
-                ))
-
-    # allow for multiple point selection
-    fig.update_layout(clickmode='event+select')
-
-    fig.update_layout(width=1200, height=600, hovermode='closest')
-
-    print("     Plot updated\n")
-    return fig
-
-@app.callback(Output('submit_plot', 'n_clicks'),
-    Input('submit_plot', 'n_clicks'),
-    Input('plotly_figure', 'figure'),
-    Input('info', 'data'),
-    Input('selectedDropDown', 'value')
-    )
-def save_plot(click, fig, info, selectedAttr):
-
-    if click:
-
-        print("----- Saving plot -----")
+    def getExcelSimilarityData(self, excelFile, sheetName):
 
         '''
-        # create the specific names for saving the plots
-        if "Attribute" in info: 
-            # for attribute analysis, the combination is important. Highligh the specific
-            # attribute with ##
-            selectedAttr = [a.replace(attribute, f"#{attribute}#") for a in sorted(attrList)]
-        else:
-            selectedAttr = attribute
+        Read in the pre-computed similarity calculations from an excel file
+
+        Inputs
+        -----
+        excelFile : str
+            The name of the excel file to read
+
+        sheetName : str
+            The name of the excel sheet to read
+
+        Outputs
+        ----
+        similarityPermissionData
+        categories
+        categoriesHeader
+        processingType
+        identityData
         '''
 
-        dims = sum([l.find("axis")>0 for l in list(fig["layout"]["scene"])])
-        plotName = f'{os.path.expanduser("~")}\\Downloads\\{info}_{dims}D_{selectedAttr}_{datetime.now().strftime("%y%m%d%H%M%S")}.html'
-        go.Figure(fig).write_html(plotName)
-        
-        print(f"     Plot saved at {plotName}\n")
+        excelPath = f"{self.dir['data']}{excelFile}"
+        posdf = pd.read_excel(excelPath, sheet_name=sheetName, header=None).fillna(False).to_numpy()
 
-    return 0
+        # find which row/column the data start
+        start = min(np.where(posdf[:, 0]!=False)[0]) + 1
 
-# killing the dash server
-@app.callback(Output('stop_button', 'children'),
-    Input('plotly_figure', 'figure'),
-    Input('stop_button', 'n_clicks'), 
-    Input('pid', 'data')
-    )
-def update_exitButton(fig, click, pid):
-    if click:
-        print("\n!!----- Stopping plottng, server disconnected -----!!\n")
-        fig.update
-        os.system(f"taskkill /IM {pid} /F") # this kills the app
-        return
+        # get the category information
+        categoriesRaw = [d for d in posdf[start::, :start]]
+        categoriesArray = np.array(categoriesRaw)
+        categoriesHeader = [c.replace(" ", "") for c in list(posdf[start-1, 0:start]) if type(c) == str]
+        categoriesArray = [categoriesArray[:, n] for n in range(categoriesArray.shape[1]) if (categoriesArray[:, n]  != False).all()]
+        categories = np.transpose(np.array(categoriesArray))
 
-# action to perform when a row is added
-@app.callback(Output('selected_points_table', 'data'),
-    State('selected_points_table', 'data'),
-    Input('hover_data', 'data'),
-    Input('plotly_figure', 'clickData')
-    )
-def add_row(rows, hover_data, inputData):
-    if inputData is None:
-        # rows = None
+        print(f"     {len(categoriesHeader)} categories extracted")
+
+        # find which row/column the data start
+        start = min(np.where(posdf[:, 0]!=False)[0]) + 1
+        data = posdf[start::, start::]
+        dimY, dimX = np.where(data=="Dimensions")
+        if len(dimY) >0 and len(dimX) >0:
+            data[dimY[0], dimX[0]:(dimX[0]+2)] = False           # search for and remove the dimensions free text
+        data[np.where(data==False)] = 1
+        data = data.astype(np.float64)
+        print(f"     {len(data)} data points extracted")
+
+        # update the DataModel attributes
+        self.similarityPermissionData = data
+        self.categories = categories
+        self.categoriesHeader = categoriesHeader
+        self.processingType = self.processType(sheetName)
+
+        if "id" in self.processingType:
+            self.identityData = pd.read_excel(excelPath, sheet_name="IdentityInformation")
+            print(f"{len(self.identityData)} identities identified with {len(self.identityData.columns)} attributes")
+
+    def getExcelIdentityData(self, excelFile, sheetName):
+
+        '''
+        Read in the raw identity data to use for the MDS transformation
+
+        Inputs
+        -----
+        excelFile : str
+            The name of the excel file to read
+
+        sheetName : str
+            The name of the excel sheet to read        
+            
+        '''
+
+        excelPath = f"{self.dir['data']}{excelFile}"
+        posdf = pd.read_excel(excelPath, sheet_name=sheetName, header=None).fillna(False).to_numpy()
+
+        self.rawPermissionData
+
+        self.identityData = pd.read_excel(excelPath, sheet_name="IdentityInformation")
         pass
-    else:
-        print("----- Data added -----")
-        d = {}
-        for n, hd in enumerate(hover_data):
-            d[hd] = inputData['points'][0]['customdata'][n]
-        if rows == [] or rows is None:
-            rows = [d]
-        elif all(rows[-1][k] == "" for k in list(rows[-1])): 
-            rows = [d]
-        else:
-            rows.append(d)
-    
-    return rows
 
-# action to perform when row is removed
-@app.callback(Output('output', 'children'),
-            Input('selected_points_table', 'data_previous')
-            )
-def remove_rows(previous):
-    if previous is not None:
-        return "" # [f'Just removed {row}' for row in previous if row not in current]
+    def getExcelAttributeData(self, excelFile, sheetName):
 
-# to save file name prompts and checks
-@app.callback(Output('input_filename', 'placeholder'),
-    Output('input_filename', 'value'),
-    Output('submit_file', 'n_clicks'),
-    Input('submit_file','n_clicks'),
-    State('selected_points_table','data'),
-    State('input_filename','value')
-)
-def save_file(click, tab_data, filename):
+        '''
+        Read in the raw identity data to use for the MDS transformation
 
-    # Save data as long as there is information etc
-    if not click:
-        placeholder = "Select data"
-    elif tab_data == [] or tab_data is None:
-        placeholder = "Select data"
-    elif filename == "":
-        placeholder = "Set file name"
-    else:
-        fileName = f"{os.path.expanduser('~')}\\Downloads\\{filename}.csv"
-        if not os.path.exists(fileName):
-            pd.DataFrame.from_records(tab_data).to_csv(fileName,index=False)
-            placeholder = "File saved"
-            print(f"     File saved at {fileName}")
-        else:
-            placeholder = "File exists"
-    
-    # always reset the text
-    output = ""
+        Inputs
+        -----
+        excelFile : str
+            The name of the excel file to read
 
-    print(f"----- Save file, {placeholder}, {output} -----\n")
-    return placeholder, output, 0
+        sheetName : str
+            The name of the excel sheet to read        
+            
+        '''
 
-'''
-NOTE need to figure out how to combine outputs
-@app.callback(Output('clear_table', 'n_clicks'),
-    Output('selected_points_table', 'data'),
-    Input('clear_table', 'n_clicks'),
-    Input('selected_points_table', 'data'),
-    )
-def clear_table(click, table):
+        excelPath = f"{self.dir['data']}{excelFile}"
+        posdf = pd.read_excel(excelPath, sheet_name=sheetName, header=None).fillna(False).to_numpy()
 
-    if click:
-        return 0, []
-'''
+        # process the posdf information to be only the desired data inputss
+        infoPos = np.where(posdf[:, 0]!=False)[0]
+        endPosInfo = infoPos[-1]+1
+        valPos = np.where(posdf[1, :]!=False)[0]
+        startPosVal = valPos[0] + 1
+        endPosVal = valPos[-1] + 1
+
+        # permissionInfo = posdf[6:endPosInfo, 0:2]
+        # NOTE add in the count column and values
+        self.rawPermissionData = posdf[6:endPosInfo, startPosVal:endPosVal]   # ensure only values included under the parameter info is included
+        self.categoriesHeader = list(posdf[1:4, startPosVal-1])
+        self.identityData = pd.read_excel(excelPath, sheet_name="IdentityInformation")
+        categoriesArray = posdf[1:4, startPosVal:endPosVal]
+        self.categories = [categoriesArray[:, n] for n in range(categoriesArray.shape[1]) if (categoriesArray[:, n]  != False).all()]
+        self.processingType = self.processType(sheetName)
 
 # ----------- Data processing and visualisation (main function) ----------
 
@@ -479,14 +151,12 @@ def multiDimAnalysis(excelFile: str, sheetName: str, dims: int):
     print("---Beginning multi dimensional analysis---")
     print(f"Arguments\nworkbook: {workbook}, worksheet: {worksheet}, dims: {dims}")
 
-    latestcsv = similarityCalculation(excelFile, sheetName, dims)
+    excelData = ExcelData()
+    # excelData.getExcelAttributeData(excelFile, "EntitlementAnalysisAttributes")
+    excelData.getExcelSimilarityData(excelFile, sheetName)
+    excelData.calculateMDS()
+    excelData.plotMDS()
 
-    posdf = pd.read_csv(latestcsv)
-
-    print(f"Loading {latestcsv} for plotting")
-
-    app = createInteractivePlot(posdf, sheetName)
-    launchApp(app)
 
 
 if __name__ == "__main__":
@@ -498,6 +168,7 @@ if __name__ == "__main__":
         multiDimAnalysis(str(workbook), str(worksheet), int(dims))
     else:
         workbook = "C:\\Users\\ResheJ\\Downloads\\WorkBook-Hashedv1.xlsm"
+        workbook = "WorkBook-FakeData.xlsm"
         worksheet = "SimilarityScoreAttributes"
         dim = 3
         
