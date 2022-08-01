@@ -11,8 +11,8 @@ import plotly.graph_objects as go
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 app = Dash(__name__, external_stylesheets=external_stylesheets)
 
-def launchApp(posdf, sheetName):
-    app = createInteractivePlot(posdf, sheetName)
+def launchApp(posdf : pd.DataFrame, name : str):
+    app = createInteractivePlot(posdf, name)
     webbrowser.open("http://127.0.0.1:8050/", new = 0, autoraise = True)
     try:
         app.run_server(debug = False)
@@ -21,7 +21,7 @@ def launchApp(posdf, sheetName):
         launchApp(app)
 
 # create the dash application
-def createInteractivePlot(df, info = ""):
+def createInteractivePlot(df : pd.DataFrame, info = ""):
 
     # get the list of desireable attributes
     # Remove the dim values
