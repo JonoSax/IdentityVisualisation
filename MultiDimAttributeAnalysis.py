@@ -321,7 +321,7 @@ def csvData():
     permissionPath = "data\\EntitlementsFake.csv"
     
     csvData = CSVData()
-    csvData.getData(identityPath, permissionPath, "Username", "Identity")
+    csvData.getData(identityPath, permissionPath, "Username", "Identity", "Value")
     csvData.calculateMDS()
     csvData.plotMDS()
 
@@ -330,9 +330,9 @@ def csvData():
 if __name__ == "__main__":
    
     print("Loading....")
-    args = sys.argv[1:]
-    if args[0] == "Excel":
-        workbook, worksheet, dims, identityID, permissionID = args[1:]
+    args = sys.argv
+    if any(["LaunchExcel" in a for a in args]):
+        workbook, worksheet, dims, identityID, permissionID = args = sys.argv[2:]
         excelData(str(workbook), str(worksheet), int(dims), str(identityID), str(permissionID))
     else:
         workbook = "C:\\Users\\ResheJ\\Downloads\\WorkBook-Hashedv1.xlsm"
