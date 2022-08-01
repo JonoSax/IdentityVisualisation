@@ -8,6 +8,8 @@ import os
 from sklearn.metrics import euclidean_distances
 from dashboard import launchApp
 
+# https://scikit-learn.org/stable/auto_examples/manifold/plot_mds.html 
+
 '''
 TODO:
     Create proper logging
@@ -30,13 +32,15 @@ class DataModel(object):
         rawPermissionData:          (np.array),         Columns of identities/attributes and rows of permissions as boolean
         similarityPermissionData:   (np.array),         The relative similarity of every data point relative to each other
         identityData:               (pd.DataFrame),     Columns of identity attriutes and rows of identities which are unique (by some key)
-        categories:                 (list),             List of the individual attribute values use in the calculations
+        categories:                 (list),           ll  List of the individual attribute values use in the calculations
                                                             NOTE this should correpsond to the same position as the relevant data in the *Data attributes
         categoriesHeader:           (list),             List of the attribute types used in the calculations
                                                             NOTE this should correpsond to the same position as the relevant data in the *Data attributes
         processingTypes:            (string),           Specified as either Identity or Attribute (determines calculation and plotting properties)
         
         dir:                        (dict),             Dictionary containing the directories and paths used
+        joinKeys:                   (dict),             Dictionary containing the keys used to join the identity and permission data together
+        permissionValue:            (str),              The attribute value in the permission dataframe which contains the permission data to model/report on
 
         [method]                    [output]            [description]
         plotMDS                     Plotly dashboard    Inputs positional data from the Multi-Dimensional Scaling calculation/s and outputs the dashboard
@@ -46,13 +50,17 @@ class DataModel(object):
 
         '''
 
+        # NOTE Rename these to better reflect what data goes into them
+        self.categories = None
+        self.categoriesHeader = None
+
         self.rawPermissionData = None
         self.similarityPermissionData = None
         self.identityData = None
-        self.categories = None
-        self.categoriesHeader = None
         self.mdsResults = None
         self.processingType = None
+        self.joinKeys = {"identity": None, "permission": None}
+        self.permissionValue = None
 
         self.dir = {}
         self.dir['wd'] = f"{os.getcwd()}\\"
@@ -81,7 +89,7 @@ class DataModel(object):
         Take the MDS results and generate excel reports
         '''
 
-    def processType(self, processName):
+    def processType(self, processName : str):
 
         if "ident" in processName.lower():
             processingType = "Identity"
@@ -125,12 +133,12 @@ class DataModel(object):
             return
 
         # identity data requires the processing type and dimensionality 
-        if "id" in self.processingType: 
-            csvName = f"{self.processingType}_{dims}"
+        if "Id" in self.processingType: 
+            csvName = f"{self.processingType}_{dims}D"
         # attribute data requires the category information as well
         else:
             joinedCategoryHeaders =  '_'.join(sorted(self.categoriesHeader))
-            csvName = f"{self.processingType}_{dims}_{joinedCategoryHeaders}"
+            csvName = f"{self.processingType}_{dims}D_{joinedCategoryHeaders}"
 
         # find any relevant files
         if not recalculate:
@@ -140,27 +148,47 @@ class DataModel(object):
         # if either forced to recalculate or no relevant files found, recalculate the MDS, else load the relevant file
         if recalculate:
 
-            # create the pre-computed similartiies matrix
-            if self.similarityPermissionData is not None:
-                similarities = 1 - self.similarityPermissionData * self.similarityPermissionData.transpose()
-
             # if only raw data provided then perform the similarities calculation
             if self.rawPermissionData is not None:
-                similarities = euclidean_distances(euclidean_distances(np.transpose(self.rawPermissionData)))
+
+                print("     Calculating similarity matrix")
+                
+                # NOTE this is the exact same similarity calculation currently performed in 
+                # the excel worksheet, how can this be improved? 
+                '''
+                wid, _ = self.rawPermissionData.shape
+                similarities = np.ones((wid, wid))
+                for m in range(wid):
+                    var0 = self.rawPermissionData[m, :]
+                    for n in range(wid):
+                        var1 = self.rawPermissionData[n, :]
+                        if n >= m: 
+                            continue
+                        else:
+                            try:        similarities[n, m] = (np.dot(var0, var1) * np.dot(var1, var0)) / (np.dot(var0, var0) * np.dot(var1, var1))
+                            except:     similarities[n, m] = 0
+                self.similarityPermissionData = similarities
+                '''
+                x = self.rawPermissionData
+                self.similarityPermissionData = np.dot(x, x.T)/np.sum(x, 1)
+
+            # create the pre-computed similartiies matrix
+            if self.similarityPermissionData is not None:
+                dissimilarity = 1 - self.similarityPermissionData * self.similarityPermissionData.transpose()
 
             # perform dimensionality reduction
             print("     Starting mds fit")
 
             mds = manifold.MDS( 
                 n_components=dims, 
-                # max_iter=3000,
+                # max_iter=1,
                 eps=1e-3,
                 random_state=np.random.RandomState(seed=3),
                 dissimilarity="precomputed",
                 n_jobs=1, 
                 verbose=1
             )
-            pos = mds.fit(similarities).embedding_
+            pos = mds.fit(dissimilarity).embedding_
 
             print(f"     Fitting complete")
 
@@ -170,12 +198,14 @@ class DataModel(object):
             posdf = pd.DataFrame(np.hstack([pos, self.categories]), columns = [*dimNames, *self.categoriesHeader])
 
             # merge all identity information if available, remove unnecessary columns, standardise headings to have no spaces
-            if "id" in self.processingType: 
+            if self.identityData is not None: 
                 selectColums = [r for r in list(self.identityData.columns) if r.lower().find("unnamed") == -1]
                 posidentitiesSelect = self.identityData[selectColums]
                 formatColumns0 = [r.replace(" ", "") for r in list(posidentitiesSelect.columns)]
                 posidentities = posidentitiesSelect.set_axis(formatColumns0, axis=1, inplace=False)
-                posdf = posdf.merge(posidentities, on=self.categoriesHeader[0], how='left')
+                
+                # NOTE maybe use how='inner' as the joining point?
+                posdf = posdf.join(posidentities, lsuffix=self.joinKeys["permission"], rsuffix=self.joinKeys["identity"], how='left')
 
             # update attribute
             self.mdsResults = posdf
