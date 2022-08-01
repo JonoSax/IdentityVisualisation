@@ -204,8 +204,8 @@ class DataModel(object):
                 formatColumns0 = [r.replace(" ", "") for r in list(posidentitiesSelect.columns)]
                 posidentities = posidentitiesSelect.set_axis(formatColumns0, axis=1, inplace=False)
                 
-                # NOTE maybe use how='inner' as the joining point?
-                posdf = posdf.join(posidentities, lsuffix=self.joinKeys["permission"], rsuffix=self.joinKeys["identity"], how='left')
+                # NOTE maybe use how='inner' as the joining point to remove non-unique identities?
+                posdf = posdf.merge(posidentities, left_on=self.joinKeys["permission"], right_on=self.joinKeys["identity"], how='left')
 
             # update attribute
             self.mdsResults = posdf
