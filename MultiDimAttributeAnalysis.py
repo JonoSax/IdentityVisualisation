@@ -12,7 +12,6 @@ from dashboard import launchApp
 from dataModel import DataModel
 
 # https://dash.plotly.com/interactive-graphing
-# https://scikit-learn.org/stable/auto_examples/manifold/plot_mds.html 
 
 
 # ---------- MDS calculations ----------
@@ -21,10 +20,15 @@ from dataModel import DataModel
 class ExcelData(DataModel):
 
     '''
-    Perform the data modelling and analysis for information stored in an excel sheet
+    Perform the data modelling and analysis for information stored in an excel sheet.
+
+    There are three ways data from an excel document can be ingested: 
+        - useSimilarityData: Read in the pre-computed similarity data
+        - useIdentityData: Read in the identity data tables
+        - useAttributeData: Read in the attribute data tables
     '''
 
-    def getExcelSimilarityData(self, excelFile, sheetName):
+    def useSimilarityData(self, excelFile : str, sheetName : str, identityID: str, permissionID: str):
 
         '''
         Read in the pre-computed similarity calculations from an excel file
@@ -77,11 +81,15 @@ class ExcelData(DataModel):
         self.categoriesHeader = categoriesHeader
         self.processingType = self.processType(sheetName)
 
-        if "id" in self.processingType:
+        if "Id" in self.processingType:
             self.identityData = pd.read_excel(excelPath, sheet_name="IdentityInformation")
             print(f"{len(self.identityData)} identities identified with {len(self.identityData.columns)} attributes")
 
-    def getExcelIdentityData(self, excelFile, sheetName):
+        self.joinKeys['identity'] = identityID
+        self.joinKeys['permission'] = permissionID
+        # self.permissionValue = permissionValue
+
+    def useIdentityData(self, excelFile : str, sheetName : str, identityID: str, permissionID: str):
 
         '''
         Read in the raw identity data to use for the MDS transformation
@@ -93,29 +101,14 @@ class ExcelData(DataModel):
 
         sheetName : str
             The name of the excel sheet to read        
-            
-        '''
 
-        excelPath = f"{self.dir['data']}{excelFile}"
-        posdf = pd.read_excel(excelPath, sheet_name=sheetName, header=None).fillna(False).to_numpy()
-
-        self.rawPermissionData
-
-        self.identityData = pd.read_excel(excelPath, sheet_name="IdentityInformation")
-        pass
-
-    def getExcelAttributeData(self, excelFile, sheetName):
-
-        '''
-        Read in the raw identity data to use for the MDS transformation
-
-        Inputs
+        Outputs
         -----
-        excelFile : str
-            The name of the excel file to read
-
-        sheetName : str
-            The name of the excel sheet to read        
+        rawPermissionData
+        categoriesHeader
+        identityData
+        categories
+        processingType
             
         '''
 
@@ -128,20 +121,182 @@ class ExcelData(DataModel):
         valPos = np.where(posdf[1, :]!=False)[0]
         startPosVal = valPos[0] + 1
         endPosVal = valPos[-1] + 1
+        startRows = 4
 
         # permissionInfo = posdf[6:endPosInfo, 0:2]
         # NOTE add in the count column and values
-        self.rawPermissionData = posdf[6:endPosInfo, startPosVal:endPosVal]   # ensure only values included under the parameter info is included
-        self.categoriesHeader = list(posdf[1:4, startPosVal-1])
+        self.rawPermissionData = np.transpose(posdf[startRows:endPosInfo, startPosVal:endPosVal])   # ensure only values included under the parameter info is included
+        self.categoriesHeader = list(posdf[:startRows, startPosVal-1])
+        self.categoriesHeader.append("Count")
         self.identityData = pd.read_excel(excelPath, sheet_name="IdentityInformation")
-        categoriesArray = posdf[1:4, startPosVal:endPosVal]
+        categoriesArray = posdf[:startRows, startPosVal:endPosVal]
         self.categories = [categoriesArray[:, n] for n in range(categoriesArray.shape[1]) if (categoriesArray[:, n]  != False).all()]
         self.processingType = self.processType(sheetName)
+
+        self.joinKeys['identity'] = identityID
+        self.joinKeys['permission'] = permissionID
+        # self.permissionValue = permissionValue
+
+    def useAttributeData(self, excelFile : str, sheetName : str):
+
+        '''
+        Read in the raw identity data to use for the MDS transformation
+
+        Inputs
+        -----
+        excelFile : str
+            The name of the excel file to read
+
+        sheetName : str
+            The name of the excel sheet to read        
+
+        Output
+        ------
+        rawPermissionData
+        categoriesHeader
+        categories
+        processingType
+        '''
+
+        excelPath = f"{self.dir['data']}{excelFile}"
+        posdf = pd.read_excel(excelPath, sheet_name=sheetName, header=None).fillna(False).to_numpy()
+
+        # process the posdf information to be only the desired data inputss
+        infoPos = np.where(posdf[:, 0]!=False)[0]
+        endPosInfo = infoPos[-1]+1
+        valPos = np.where(posdf[1, :]!=False)[0]
+        startPosVal = valPos[0] + 1
+        endPosVal = valPos[-1] + 1
+        startRows = 5
+
+        # permissionInfo = posdf[6:endPosInfo, 0:2]
+        # NOTE add in the count column and values
+        self.rawPermissionData = posdf[startRows:endPosInfo, startPosVal:endPosVal]   # ensure only values included under the parameter info is included
+        self.categoriesHeader = list(posdf[1:startRows-1, startPosVal-1])
+        self.categoriesHeader.append("Count")
+        categoriesArray = posdf[1:startRows, startPosVal:endPosVal]
+        self.categories = [categoriesArray[:, n] for n in range(categoriesArray.shape[1]) if (categoriesArray[:, n]  != False).all()]
+        self.processingType = self.processType(sheetName)
+
+class CSVData(DataModel):
+
+    '''
+    Perform the data modelling and analysis for information stored in exported csvs.
+
+    Data structures
+    -----
+
+    -- Identity data --
+
+    This file should the unique identities, one per line, with columns containing their attributes:
+    ID#,    Dept,   Job,    
+    001,    d1,     j1,
+    002,    d1,     j2,    
+    etc.
+
+    Where the first line is the attribute type name, each line contains a UNIQUE **identity**
+    which can be identified by some unique key value (which has to be specified).
+
+    -- Permission data --
+
+    This file should contain the permission data, where each line is a unique identity and permission data combination, eg
+    ID#,    Value,  Application,    
+    001,    v1,     a1,
+    001,    v2,     a1, 
+    002,    v1,     a1   
+    002,    v3,     a2,
+    etc.
+
+    Where the first line is the attribute type name, each line contains a UNIQUE 
+    **permission assignment**.
+
+    The attribute name (column header in the file) which is used to join to the permission data
+    for the above example, "ID#".
+
+    The attribute name (column header in the file) which is the permission name of interest to compare againist
+    other identities, for the above example, "Value".
+
+    '''
+
+    def getData(self, identityPath: str, permissionPath: str, identityKey: str, permissionKey : str, permissionValue: str):
+
+        '''
+        Ingest the raw information and process for the dataModel
+
+        Inputs
+        -----
+
+        identityPath : str
+
+        permissionPath : str
+
+        identityKey : str
+            The joining key used to connect the identity and permission dataframes on the identity data
+
+        permissionKey : str
+            The joining key used to connect the identity and permission dataframes on the permission data
+
+        permissionValue : str
+
+        Outputs
+        -----
+        DataModel : obj
+            The attributes of the data model populated
+        '''
+
+        self.identityPath = identityPath
+        self.permissionPath = permissionPath
+        self.joinKeys["identity"] = identityKey
+        self.joinKeys["permission"] = permissionKey
+        self.permissionValue = permissionValue
+
+        self.getIdentityData()
+        self.getPermissionData()
+
+    def getIdentityData(self):
+
+        '''
+        Process the raw identity data
+        '''
+
+        self.identityData = pd.read_csv(self.identityPath).dropna(how = 'all')
+
+    def getPermissionData(self):
+
+        '''
+        Process the raw permission data
+        '''
+
+        permissionData = pd.read_csv(self.permissionPath).dropna(how = 'all')
+
+        # perform a pivot of the raw csv data to create a sparse matrix of occurence
+        headers = list(permissionData.columns)
+        headers.remove(self.joinKeys['permission'])
+        headers.remove(self.permissionValue)
+        permPivot = pd.pivot_table(permissionData, 
+                    values = [headers[0]], 
+                    columns=[self.joinKeys['permission']], 
+                    index=[self.permissionValue], 
+                    aggfunc = 'count', 
+                    fill_value = 0)
+        permPivot.columns = permPivot.columns.droplevel(0)
+        permPivot = permPivot.reset_index()
+        permPivot = permPivot.set_index(self.permissionValue)
+
+        # this is joining the identity and permission data as only the identities in the
+        # identityData are INCLUDED in the permission data
+        commonIdentities = permPivot.columns[permPivot.columns.isin(self.identityData[self.joinKeys['identity']])]
+        joinedPivot = permPivot[commonIdentities]
+        
+        self.rawPermissionData = np.transpose(joinedPivot.to_numpy())
+        self.categoriesHeader = [self.joinKeys['permission']]
+        self.categories = np.c_[joinedPivot.columns]
+        self.processingType = self.processType("Identity")
 
 # ----------- Data processing and visualisation (main function) ----------
 
 # initiate the processing, visualisation and local server
-def multiDimAnalysis(excelFile: str, sheetName: str, dims: int):
+def excelData(excelFile: str, sheetName: str, dims: int, identityID: str, permissionID: str, permissionValue: str):
 
     '''
     Calculate and visualise a dimensionally reduced analysis of entitlements
@@ -151,25 +306,38 @@ def multiDimAnalysis(excelFile: str, sheetName: str, dims: int):
     print("---Beginning multi dimensional analysis---")
     print(f"Arguments\nworkbook: {workbook}, worksheet: {worksheet}, dims: {dims}")
 
+    
     excelData = ExcelData()
-    # excelData.getExcelAttributeData(excelFile, "EntitlementAnalysisAttributes")
-    excelData.getExcelSimilarityData(excelFile, sheetName)
+    # excelData.useAttributeData(excelFile, "EntitlementAnalysisAttributes", permissionValue)
+    # excelData.useIdentityData(excelFile, "EntitlementAnalysisIdentities", identityID, permissionID, permissionValue)
+    excelData.useSimilarityData(excelFile, sheetName, identityID, permissionID, permissionValue)
     excelData.calculateMDS()
     excelData.plotMDS()
+    
+
+def csvData():
+    
+    identityPath = "data\\IdentitiesFake.csv"
+    permissionPath = "data\\EntitlementsFake.csv"
+    
+    csvData = CSVData()
+    csvData.getData(identityPath, permissionPath, "Username", "Identity")
+    csvData.calculateMDS()
+    csvData.plotMDS()
 
 
 
 if __name__ == "__main__":
    
     print("Loading....")
-    if len(sys.argv) == 4:
-        _, workbook, worksheet, dims = sys.argv
-
-        multiDimAnalysis(str(workbook), str(worksheet), int(dims))
+    args = sys.argv[1:]
+    if args[0] == "Excel":
+        workbook, worksheet, dims, identityID, permissionID = args[1:]
+        excelData(str(workbook), str(worksheet), int(dims), str(identityID), str(permissionID))
     else:
         workbook = "C:\\Users\\ResheJ\\Downloads\\WorkBook-Hashedv1.xlsm"
         workbook = "WorkBook-FakeData.xlsm"
-        worksheet = "SimilarityScoreAttributes"
-        dim = 3
-        
-        multiDimAnalysis(workbook, worksheet, dim)
+        worksheet = "SimilarityScoreIdentities"
+        dims = 3
+        csvData()
+        excelData(workbook, worksheet, dims, "Username", "Identity")
