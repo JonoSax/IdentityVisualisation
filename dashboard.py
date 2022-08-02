@@ -7,12 +7,15 @@ from datetime import datetime
 import dash_daq as daq
 import webbrowser
 import plotly.graph_objects as go
+from plotly.colors import qualitative as colours
+from plotly.colors import hex_to_rgb
+import numpy as np
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 app = Dash(__name__, external_stylesheets=external_stylesheets)
 
-def launchApp(posdf : pd.DataFrame, name : str):
-    app = createInteractivePlot(posdf, name)
+def launchApp(dataModel : object, name = ""):
+    app = createInteractivePlot(dataModel, name)
     webbrowser.open("http://127.0.0.1:8050/", new = 0, autoraise = True)
     try:
         app.run_server(debug = False)
@@ -21,7 +24,7 @@ def launchApp(posdf : pd.DataFrame, name : str):
         launchApp(app)
 
 # create the dash application
-def createInteractivePlot(df : pd.DataFrame, info = ""):
+def createInteractivePlot(dataModel : object, info : str):
 
     # get the list of desireable attributes
     # Remove the dim values
@@ -29,6 +32,11 @@ def createInteractivePlot(df : pd.DataFrame, info = ""):
     # Remove the key words "Count" and "Unnamed: 0" which are artefacts of the plotting
 
     print("---Creating web server for plotting---")
+    if dataModel.trackHistorical is None:
+        df = dataModel.mdsResults
+    else:
+        df = dataModel.trackHistorical
+
     # attrList = [l for l in sorted(formatColumns) if not (l.lower().startswith("dim") or l.lower().startswith("unnamed"))]
     hover_data = [d for d in sorted(list(df.columns)) if (d.lower().find("unnamed") == -1 and d.lower().find("dim") == -1)]
     attrList = [r.replace(r, f"{r}: {len(df[r].unique())}") for r in hover_data ]
@@ -161,6 +169,7 @@ def update_graph(dfjson, attribute, info, hover_data):
     print("----- Updating plotting information -----")
 
     df = pd.read_json(dfjson, orient='split')
+    df[hover_data] = df[hover_data].astype(str)
     dataColumns = list(df.columns)
     dims = sum(1 for x in list(dataColumns) if x.startswith ("Dim"))
 
@@ -169,11 +178,14 @@ def update_graph(dfjson, attribute, info, hover_data):
     plotTitle = f"{info} {dims}D visualising {attribute} for {len(df)} data points"
 
     # set the constant for x, y, z scaling (0 = exact fit for data, 0.1 = 10% larger etc)
-    r = 0.2
+    r = 0.5
 
+    # NOTE 2D plotting is not being suppored atm.
     if dims == 2:
         print(f"     Creating 2D plotting for {attribute}")
-        fig = px.scatter(df, x=df["Dim0"], y=df["Dim1"],
+        fig = px.scatter(df, 
+                x=df["Dim0"], 
+                y=df["Dim1"],
                 hover_data = hover_data,
                 color = attribute,
                 title = plotTitle, 
@@ -187,20 +199,56 @@ def update_graph(dfjson, attribute, info, hover_data):
                 ))
 
     elif dims == 3:
-        print(f"     Creating 3D plotting for {attribute}")
-        fig = px.scatter_3d(df, x=df["Dim0"], y=df["Dim1"], z=df["Dim2"],
-                hover_data = hover_data,
-                color = attribute, 
-                title = plotTitle, 
-                hover_name= attribute
-                )
 
+        # if there is temporal versions of the data, plot the traces 
+        if "UnixTime" in df.columns:
+            print(f"     Tracking historical data with 3D plotting for {attribute}")
+
+            fig = go.Figure()
+            uniqueIDs = df["Username"].unique()
+            colourDict = {}
+
+            # create a dictionary to colour the traces depending on the attribute selected
+            for n, c in enumerate(df[attribute].unique()):
+                colourDict[str(c)] = hex_to_rgb(colours.Plotly[n%len(colours.Plotly)])
+
+            for uid in uniqueIDs:
+                uiddf = df[df["Username"] == uid]
+                variable_colour = [f"rgba{tuple(np.append(colourDict[uiddf[attribute].iloc[n]], c))}" for n, c in zip(range(len(uiddf)), np.linspace(0.4, 1, len(uiddf)))]
+                fig.add_trace(go.Scatter3d(
+                        x=uiddf["Dim0"],
+                        y=uiddf["Dim1"],
+                        z=uiddf["Dim2"],
+                        hovertext = 
+                        ['<br>'.join([f"{h}: {uiddf[h].iloc[n]}" for h in hover_data]) for n in range(len(uiddf))],
+                        customdata=uiddf,
+                        marker=dict(color=variable_colour),
+                        line = dict(color=variable_colour)
+                        ),
+                    )
+                
+        # plot only the current data
+        else:
+            print(f"     Plotting data with 3D plotting for {attribute}")
+
+            fig = px.scatter_3d(df, 
+                    x=df["Dim0"], 
+                    y=df["Dim1"], 
+                    z=df["Dim2"],
+                    hover_data = hover_data,
+                    color = attribute, 
+                    title = plotTitle, 
+                    hover_name= attribute
+                    )
+        # NOTE i don't think this is actually doing anything....
+        
         fig.update_layout(
             scene = dict(
-                xaxis = dict(range=[min(df["Dim0"])*(1-r), max(df["Dim0"])*(1+r)]),
-                yaxis = dict(range=[min(df["Dim1"])*(1-r), max(df["Dim1"])*(1+r)]),
-                zaxis = dict(range=[min(df["Dim2"])*(1-r), max(df["Dim2"])*(1+r)])
+                xaxis = dict(range=[min(df["Dim0"])-r, max(df["Dim0"])+r]),
+                yaxis = dict(range=[min(df["Dim1"])-r, max(df["Dim1"])+r]),
+                zaxis = dict(range=[min(df["Dim2"])-r, max(df["Dim2"])+r])
                 ))
+
 
     # allow for multiple point selection
     fig.update_layout(clickmode='event+select')
@@ -233,6 +281,7 @@ def save_plot(click, fig, info, selectedAttr):
         '''
 
         dims = sum([l.find("axis")>0 for l in list(fig["layout"]["scene"])])
+        selectedAttr = selectedAttr.split(":")[0]
         plotName = f'{os.path.expanduser("~")}\\Downloads\\{info}_{dims}D_{selectedAttr}_{datetime.now().strftime("%y%m%d%H%M%S")}.html'
         go.Figure(fig).write_html(plotName)
         
