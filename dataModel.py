@@ -1,12 +1,14 @@
 import numpy as np
 import pandas as pd
-import numpy as np
 from sklearn import manifold
 from glob import glob
 from datetime import datetime
 import os
-from sklearn.metrics import euclidean_distances
 from dashboard import launchApp
+
+# NOTE this has been set to turn off unnecessary warnings regarding a df modification in the 
+# plotMDS function
+pd.options.mode.chained_assignment = None
 
 # https://scikit-learn.org/stable/auto_examples/manifold/plot_mds.html 
 
@@ -78,26 +80,54 @@ class DataModel(object):
         Take the data information and report the information in the dashboard
         '''
 
-        if self.trackHistorical is not None:
+        # NOTE I need to enable identities which are missing in some samples to be assigned NA for the date provided
+        # for example when some has joined or left before/after the data set has finished.
+
+        if self.trackHistorical:
         # if False:
             # NOTE the sorting here ensures that the data is added chronologically
-            files = sorted(glob(f"{self.mdsSavedResults.split('_')[0]}*"))
-
-            for n, f in enumerate(files[-5:]):
+            files = sorted(glob(f"{self.mdsSavedResults.split('_')[0]}*"), reverse = True)
+            dfS = None
+            for n, f in enumerate(files[:5]):
                 timeUnix = int(f.split("_")[-1].split(".")[0])
                 timeString = datetime.fromtimestamp(timeUnix).strftime("%m/%d/%Y, %H:%M:%S")
                 df = pd.read_csv(f) 
-                df.insert(0, "UnixTime", timeUnix)
                 df.insert(0, "DateTime", timeString)
-                if type(self.trackHistorical) is bool:
-                    self.trackHistorical = df
+                df.insert(0, "timeUnix", timeUnix)
+                # df.set_index("timeUnix")
+                if dfS is None:
+                    dfS = df
                 else:
                     # add some random noise for testing purposes
                     df[["Dim0", "Dim1", "Dim2"]] = df[["Dim0", "Dim1", "Dim2"]] + [n/10, (n/10)**2, np.random.random() * 0.1]
-                    self.trackHistorical = pd.concat([self.trackHistorical, df], axis = 0)
+                    dfS = pd.concat([dfS, df], axis = 0)
 
                 # self.trackHistorical[["Dim0", "Dim1", "Dim0"]] = self.trackHistorical[["Dim0", "Dim1", "Dim0"]] + np.random.random() + n
 
+        # ensure all datapoints have the relevant time stamps
+        allDateTimes = dfS["DateTime"].unique()
+        allUnixTimes = dfS["timeUnix"].unique()
+        dfN = None
+        for user in dfS["Username"].unique():
+
+            iddf = dfS[dfS[self.joinKeys["identity"]]==user].copy()
+            missingTimes = [(u, d) for u, d in zip(allUnixTimes, allDateTimes) if u not in list(iddf["timeUnix"])]
+            for unix, date in missingTimes:
+                
+                iddf = pd.concat([iddf, pd.Series(np.NAN)], ignore_index=True, axis = 0)
+                iddf[self.joinKeys["identity"]][iddf.index[-1]] = user
+                iddf["timeUnix"][iddf.index[-1]] = unix
+                iddf["DateTime"][iddf.index[-1]] = date
+            
+            if dfN is None:
+                dfN = iddf
+            else:
+                dfN = pd.concat([dfN, iddf], ignore_index=True, axis = 0)
+        
+        # just ensure there are no random columsn added from some buggy pandas stuff???
+        dfN = dfN[list(dfS.columns)]
+
+        self.trackHistorical = dfN.sort_values(["timeUnix", self.joinKeys["identity"]])
         launchApp(self)
 
     def reportData(self):
@@ -163,40 +193,29 @@ class DataModel(object):
 
         # find any relevant files
         csvFiles = sorted(glob(f"{self.dir['results']}{csvName}*.csv"))
-        self.trackHistorical = len(csvFiles) > 2
+
+        # evaluate if there is any historical data to track
+        if self.trackHistorical:
+            self.trackHistorical = len(csvFiles) > 2
+
+        # evaluation if we need to recalculate or if a file can just be loaded
         if not recalculate:
             recalculate = len(csvFiles) == 0
 
         # if either forced to recalculate or no relevant files found, recalculate the MDS, else load the relevant file
         if recalculate:
 
+            print("     Recalculation beginning")
+
             # if only raw data provided then perform the similarities calculation
             if self.rawPermissionData is not None:
 
                 print("     Calculating similarity matrix")
-                
-                # NOTE this is the exact same similarity calculation currently performed in 
-                # the excel worksheet, how can this be improved? 
-                '''
-                wid, _ = self.rawPermissionData.shape
-                similarities = np.ones((wid, wid))
-                for m in range(wid):
-                    var0 = self.rawPermissionData[m, :]
-                    for n in range(wid):
-                        var1 = self.rawPermissionData[n, :]
-                        if n >= m: 
-                            continue
-                        else:
-                            try:        similarities[n, m] = (np.dot(var0, var1) * np.dot(var1, var0)) / (np.dot(var0, var0) * np.dot(var1, var1))
-                            except:     similarities[n, m] = 0
-                self.similarityPermissionData = similarities
-                '''
+
                 x = self.rawPermissionData
                 self.similarityPermissionData = np.dot(x, x.T)/np.sum(x, 1)
 
-            # create the pre-computed similartiies matrix
-            if self.similarityPermissionData is not None:
-                dissimilarity = 1 - self.similarityPermissionData * self.similarityPermissionData.transpose()
+            dissimilarity = 1 - self.similarityPermissionData * self.similarityPermissionData.transpose()
 
             # perform dimensionality reduction
             print("     Starting mds fit")
@@ -239,6 +258,7 @@ class DataModel(object):
 
         else:
             csvPath = csvFiles[-1]
+            print(f"     Using {csvPath} to load pre-calculated results")
             self.mdsResults = pd.read_csv(csvPath)
 
         # save the path
