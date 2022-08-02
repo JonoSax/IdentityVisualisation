@@ -11,17 +11,18 @@ from plotly.colors import qualitative as colours
 from plotly.colors import hex_to_rgb
 import numpy as np
 
-external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
+external_stylesheets = ['\\data\\bWLwgP.css']
 app = Dash(__name__, external_stylesheets=external_stylesheets)
 
 def launchApp(dataModel : object, name = ""):
-    app = createInteractivePlot(dataModel, name)
+    
+    appObj = createInteractivePlot(dataModel, name)
     webbrowser.open("http://127.0.0.1:8050/", new = 0, autoraise = True)
     try:
-        app.run_server(debug = False)
+        appObj.run_server(debug = False)
     except Exception as e:
         print(e)
-        launchApp(app)
+        launchApp(appObj)
 
 # create the dash application
 def createInteractivePlot(dataModel : object, info : str):
@@ -39,7 +40,10 @@ def createInteractivePlot(dataModel : object, info : str):
 
     # attrList = [l for l in sorted(formatColumns) if not (l.lower().startswith("dim") or l.lower().startswith("unnamed"))]
     hover_data = [d for d in sorted(list(df.columns)) if (d.lower().find("unnamed") == -1 and d.lower().find("dim") == -1)]
-    attrList = [r.replace(r, f"{r}: {len(df[r].unique())}") for r in hover_data ]
+    hover_data.remove("timeUnix")
+    attrList = hover_data.copy()
+    attrList.remove("DateTime")
+    attrList = [r.replace(r, f"{r}: {len(df[r].unique())}") for r in attrList]
 
     # for values which are numeric, convert their values into a ranked position so that 
     # on the heat maps it can show up easily
@@ -54,7 +58,6 @@ def createInteractivePlot(dataModel : object, info : str):
     # https://dash.plotly.com/interactive-graphing
     # https://dash.plotly.com/datatable
     # https://dash.plotly.com/datatable/editable 
-
 
     app.layout = html.Div([
         # drop down list of attribute options detected from data 
@@ -178,7 +181,7 @@ def update_graph(dfjson, attribute, info, hover_data):
     plotTitle = f"{info} {dims}D visualising {attribute} for {len(df)} data points"
 
     # set the constant for x, y, z scaling (0 = exact fit for data, 0.1 = 10% larger etc)
-    r = 0.5
+    r = 0.1
 
     # NOTE 2D plotting is not being suppored atm.
     if dims == 2:
@@ -201,8 +204,10 @@ def update_graph(dfjson, attribute, info, hover_data):
     elif dims == 3:
 
         # if there is temporal versions of the data, plot the traces 
-        if "UnixTime" in df.columns:
+        if "DateTime" in df.columns:
             print(f"     Tracking historical data with 3D plotting for {attribute}")
+
+            allTimes = df["DateTime"].unique()
 
             fig = go.Figure()
             uniqueIDs = df["Username"].unique()
@@ -212,20 +217,49 @@ def update_graph(dfjson, attribute, info, hover_data):
             for n, c in enumerate(df[attribute].unique()):
                 colourDict[str(c)] = hex_to_rgb(colours.Plotly[n%len(colours.Plotly)])
 
+            # NOTE because the data is ordered from the newest (at the top) to the oldest (at the bottom) this means the 
+            # size is DECREASING and the transparency is DECREASING. This is so that for the legend plotting, the markers
+            # are more easily visible...
             for uid in uniqueIDs:
+                # get all the unique entries for this unique identity
                 uiddf = df[df["Username"] == uid]
-                variable_colour = [f"rgba{tuple(np.append(colourDict[uiddf[attribute].iloc[n]], c))}" for n, c in zip(range(len(uiddf)), np.linspace(0.4, 1, len(uiddf)))]
-                fig.add_trace(go.Scatter3d(
-                        x=uiddf["Dim0"],
-                        y=uiddf["Dim1"],
-                        z=uiddf["Dim2"],
-                        hovertext = 
-                        ['<br>'.join([f"{h}: {uiddf[h].iloc[n]}" for h in hover_data]) for n in range(len(uiddf))],
-                        customdata=uiddf,
-                        marker=dict(color=variable_colour),
-                        line = dict(color=variable_colour)
-                        ),
+
+                # set the colours so that the newest data pont is 100% opacity and the oldest data point is 40% opacity
+                variable_colour = [f"rgba{tuple(np.append(colourDict[uiddf[attribute].iloc[n]], c))}" for n, c in zip(range(len(uiddf)), np.linspace(1, 0.4, len(allTimes)))]
+                name = [u for u in uiddf[attribute] if u != "None"][0]
+                # doco: https://plotly.github.io/plotly.py-docs/generated/plotly.graph_objects.Scatter3d.html
+                fig.add_trace(
+                        go.Scatter3d(
+                            x=uiddf["Dim0"],
+                            y=uiddf["Dim1"],
+                            z=uiddf["Dim2"],
+                            customdata=uiddf,
+                            hovertext = 
+                            ['<br>'.join([f"{h}: {uiddf[h].iloc[n]}" for h in hover_data]) for n in range(len(uiddf))],
+                            marker=dict(color=variable_colour, size=np.linspace(12, 4, len(uiddf)).astype(int)),
+                            line = dict(color=variable_colour),
+                            name = name,            # NOTE this must be a string/number
+                            legendgroup = name,     # NOTE this must be a string/number
+                            connectgaps=True        # NOTE for some reason this isn't acutally connecting gaps.... maybe wrong data type for empty? 
+                        )
                     )
+
+            # remove duplicate legend entries
+            names = set()
+            fig.for_each_trace(
+                lambda trace:
+                    trace.update(showlegend=False) if (trace.name in names) else names.add(trace.name)
+                    )
+
+            # for missing datapoints, connect traces
+            fig.update_traces(connectgaps=True)
+
+            # see legend doco: https://plotly.com/python/reference/layout/#layout-legend 
+            fig.update_layout(
+                legend=dict(
+                    traceorder= "normal",
+                )
+            )
                 
         # plot only the current data
         else:
@@ -251,9 +285,12 @@ def update_graph(dfjson, attribute, info, hover_data):
 
 
     # allow for multiple point selection
-    fig.update_layout(clickmode='event+select')
-
-    fig.update_layout(width=1200, height=600, hovermode='closest')
+    fig.update_layout(
+        clickmode='event+select',
+        width=1200, 
+        height=600, 
+        hovermode='closest'
+    )
 
     print("     Plot updated\n")
     return fig
