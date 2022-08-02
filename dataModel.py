@@ -32,7 +32,8 @@ class DataModel(object):
         rawPermissionData:          (np.array),         Columns of identities/attributes and rows of permissions as boolean
         similarityPermissionData:   (np.array),         The relative similarity of every data point relative to each other
         identityData:               (pd.DataFrame),     Columns of identity attriutes and rows of identities which are unique (by some key)
-        categories:                 (list),           ll  List of the individual attribute values use in the calculations
+        mdsResults:                 (pd.DataFrame),     The dimensionally reduced data with corresponding attributes (if applicable)
+        categories:                 (list),             List of the individual attribute values use in the calculations
                                                             NOTE this should correpsond to the same position as the relevant data in the *Data attributes
         categoriesHeader:           (list),             List of the attribute types used in the calculations
                                                             NOTE this should correpsond to the same position as the relevant data in the *Data attributes
@@ -41,6 +42,8 @@ class DataModel(object):
         dir:                        (dict),             Dictionary containing the directories and paths used
         joinKeys:                   (dict),             Dictionary containing the keys used to join the identity and permission data together
         permissionValue:            (str),              The attribute value in the permission dataframe which contains the permission data to model/report on
+        trackHistorical:            (boolean),          If True load relevant data and include in traces, otherwise just plot the existing data
+        mdsSavedResults:            (str),              Path of the current MDS results saved output
 
         [method]                    [output]            [description]
         plotMDS                     Plotly dashboard    Inputs positional data from the Multi-Dimensional Scaling calculation/s and outputs the dashboard
@@ -61,6 +64,8 @@ class DataModel(object):
         self.processingType = None
         self.joinKeys = {"identity": None, "permission": None}
         self.permissionValue = None
+        self.trackHistorical = None
+        self.mdsSavedResults = None
 
         self.dir = {}
         self.dir['wd'] = f"{os.getcwd()}\\"
@@ -73,7 +78,27 @@ class DataModel(object):
         Take the data information and report the information in the dashboard
         '''
 
-        launchApp(self.mdsResults, self.processingType)
+        if self.trackHistorical is not None:
+        # if False:
+            # NOTE the sorting here ensures that the data is added chronologically
+            files = sorted(glob(f"{self.mdsSavedResults.split('_')[0]}*"))
+
+            for n, f in enumerate(files[-5:]):
+                timeUnix = int(f.split("_")[-1].split(".")[0])
+                timeString = datetime.fromtimestamp(timeUnix).strftime("%m/%d/%Y, %H:%M:%S")
+                df = pd.read_csv(f) 
+                df.insert(0, "UnixTime", timeUnix)
+                df.insert(0, "DateTime", timeString)
+                if type(self.trackHistorical) is bool:
+                    self.trackHistorical = df
+                else:
+                    # add some random noise for testing purposes
+                    df[["Dim0", "Dim1", "Dim2"]] = df[["Dim0", "Dim1", "Dim2"]] + [n/10, (n/10)**2, np.random.random() * 0.1]
+                    self.trackHistorical = pd.concat([self.trackHistorical, df], axis = 0)
+
+                # self.trackHistorical[["Dim0", "Dim1", "Dim0"]] = self.trackHistorical[["Dim0", "Dim1", "Dim0"]] + np.random.random() + n
+
+        launchApp(self)
 
     def reportData(self):
 
@@ -128,21 +153,18 @@ class DataModel(object):
             print("     Impossible dimensions inputted")
             return
 
-        if self.processingType is None:
-            print("     Irrelevant processing types inputted")
-            return
-
-        # identity data requires the processing type and dimensionality 
-        if "Id" in self.processingType: 
-            csvName = f"{self.processingType}_{dims}D"
         # attribute data requires the category information as well
-        else:
+        if "Attr" in self.processingType: 
             joinedCategoryHeaders =  '_'.join(sorted(self.categoriesHeader))
-            csvName = f"{self.processingType}_{dims}D_{joinedCategoryHeaders}"
+            csvName = f"{self.processingType}{dims}D_{joinedCategoryHeaders}"
+        # identity data requires the processing type and dimensionality 
+        else:
+            csvName = f"{self.processingType}{dims}D"
 
         # find any relevant files
+        csvFiles = sorted(glob(f"{self.dir['results']}{csvName}*.csv"))
+        self.trackHistorical = len(csvFiles) > 2
         if not recalculate:
-            csvFiles = sorted(glob(f"{self.dir['results']}{csvName}*.csv"))
             recalculate = len(csvFiles) == 0
 
         # if either forced to recalculate or no relevant files found, recalculate the MDS, else load the relevant file
@@ -211,8 +233,7 @@ class DataModel(object):
             self.mdsResults = posdf
 
             # save the positional data results
-            now = datetime.now()
-            dt_string = now.strftime("%Y%m%d_%H%M%S")
+            dt_string = int(datetime.utcnow().timestamp())
             csvPath = f"{self.dir['results']}{csvName}_{dt_string}.csv"
             posdf.to_csv(csvPath)
 
@@ -220,109 +241,5 @@ class DataModel(object):
             csvPath = csvFiles[-1]
             self.mdsResults = pd.read_csv(csvPath)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-'''
-    # perform MDS fitting
-    def similarityCalculation(self, excelFile, sheetName, dims):
-
-        print("---similarityCalculation beginning---")
-
-        wd = up(up(excelFile))
-        resultsDir = f"{wd}\\results\\"
-        dataDir = f"{wd}\\data\\"
-
-        if "attributes" in sheetName.lower():
-            print(f"     Loading {sheetName} from {excelFile}")
-            posdf = pd.read_excel(excelFile, sheet_name=sheetName, header=None).fillna(False).to_numpy()
-
-            # we need the excel sheet to do the processing
-            data, categories, categoriesHeader = getdfInfo(posdf)
-
-            print("     Excel file successfully loaded")
-
-            # check if the data has already been calculated
-            joinedCategoryHeaders =  '_'.join(sorted(categoriesHeader))
-            csvName = f"{sheetName}_{dims}_{joinedCategoryHeaders}"
-            csvFiles = sorted(glob(f"{resultsDir}{csvName}*.csv"))
-            calculateMDS = len(csvFiles) == 0
-
-        elif "identities" in sheetName.lower():
-
-            # attribute combinations are not important for identity data
-            csvName = f"{sheetName}_{dims}"
-
-            # identities contain all information, just check the dims are calculated for the right sheet
-            csvFiles = sorted(glob(f"{resultsDir}{csvName}*.csv"))
-            calculateMDS = len(csvFiles) == 0
-
-            # only load the identity excel sheet if we know that we have to calculate the info
-            if calculateMDS:
-                print(f"     Opening {sheetName} worksheet")
-                posdf = pd.read_excel(excelFile, sheet_name=sheetName, header=None).fillna(False).to_numpy()
-                data, categories, categoriesHeader = getdfInfo(posdf)
-
-        if calculateMDS:
-
-            print("     No relevant calculations found, new MDS calculation beginning")
-                    
-            # create the pre-computed similartiies matrix
-            similarities = data * data.transpose()
-
-            # perform dimensionality reduction
-            print("     Starting mds fit")
-
-            mds = manifold.MDS( 
-                n_components=dims, 
-                # max_iter=3000,
-                eps=1e-3,
-                random_state=np.random.RandomState(seed=3),
-                dissimilarity="precomputed",
-                n_jobs=1, 
-                verbose=1
-            )
-            pos = mds.fit(1-similarities).embedding_
-
-            print(f"     Fitting complete")
-
-            # get n-dimension labels
-            dimNames = [f"Dim{n}" for n in range(len(pos[0]))]
-
-            joinedCategoryHeaders =  '_'.join(sorted(categoriesHeader))
-            posdf = pd.DataFrame(np.hstack([pos, categories]), columns = [*dimNames, *categoriesHeader])
-
-            # merge all identity information if available. Remove unnecessary columns and add warnings to long attribute lists
-            if "Identities" in sheetName: 
-                posidentitiesRaw = pd.read_excel(excelFile, sheet_name="IdentityInformation")
-                selectColums = [r for r in list(posidentitiesRaw.columns) if r.lower().find("unnamed") == -1]
-                posidentitiesSelect = posidentitiesRaw[selectColums]
-                formatColumns0 = [r.replace(" ", "") for r in list(posidentitiesSelect.columns)]
-                posidentities = posidentitiesSelect.set_axis(formatColumns0, axis=1, inplace=False)
-                posdf = posdf.merge(posidentities, on=categoriesHeader[0], how='left')
-
-            # date stamp the file
-            dir = os.path.dirname(excelFile)
-            now = datetime.now()
-            dt_string = now.strftime("%Y%m%d_%H%M%S")
-            csvPath = f"{resultsDir}{csvName}_{dt_string}.csv"
-            posdf.to_csv(csvPath)
-
-        else:
-            # return the most recently created version
-            csvPath = csvFiles[-1]
-            print(f"     Loading {sheetName} from {excelFile}")
-
-        return csvPath
-'''
+        # save the path
+        self.mdsSavedResults = csvPath
