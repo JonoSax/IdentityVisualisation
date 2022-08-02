@@ -2,13 +2,7 @@
 
 import sys
 import numpy as np
-from sklearn import manifold
-from glob import glob
 import pandas as pd
-import os
-from os.path import dirname as up
-from datetime import datetime
-from dashboard import launchApp
 from dataModel import DataModel
 
 # https://dash.plotly.com/interactive-graphing
@@ -218,7 +212,7 @@ class CSVData(DataModel):
 
     '''
 
-    def getData(self, identityPath: str, permissionPath: str, identityKey: str, permissionKey : str, permissionValue: str):
+    def getData(self, identityPath: str, permissionPath: str, identityKey: str, permissionKey : str, permissionValue: str, trackHistorical = True):
 
         '''
         Ingest the raw information and process for the dataModel
@@ -237,6 +231,10 @@ class CSVData(DataModel):
             The joining key used to connect the identity and permission dataframes on the permission data
 
         permissionValue : str
+            The columns value used to model the relationships between the identities
+
+        trackHistorical : boolean
+            If True, if there are relevant files which contain historical data, track these. 
 
         Outputs
         -----
@@ -249,6 +247,7 @@ class CSVData(DataModel):
         self.joinKeys["identity"] = identityKey
         self.joinKeys["permission"] = permissionKey
         self.permissionValue = permissionValue
+        self.trackHistorical = trackHistorical
 
         self.getIdentityData()
         self.getPermissionData()
@@ -311,19 +310,20 @@ def excelData(excelFile: str, sheetName: str, dims: int, identityID: str, permis
     # excelData.useAttributeData(excelFile, "EntitlementAnalysisAttributes", permissionValue)
     # excelData.useIdentityData(excelFile, "EntitlementAnalysisIdentities", identityID, permissionID, permissionValue)
     excelData.useSimilarityData(excelFile, sheetName, identityID, permissionID, permissionValue)
-    excelData.calculateMDS()
+    excelData.calculateMDS(recalculate=False)
     excelData.plotMDS()
     
 
 def csvData():
     
-    identityPath = "data\\IdentitiesFake.csv"
+    identityPath = "data\\IdentitiesFakeSmall.csv"
     permissionPath = "data\\EntitlementsFake.csv"
     
     csvData = CSVData()
     csvData.getData(identityPath, permissionPath, "Username", "Identity", "Value")
-    csvData.calculateMDS()
+    csvData.calculateMDS(recalculate=False)
     csvData.plotMDS()
+
 
 
 
