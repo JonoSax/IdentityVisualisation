@@ -39,8 +39,9 @@ def createInteractivePlot(dataModel : object, info : str):
         df = dataModel.trackHistorical
 
     # attrList = [l for l in sorted(formatColumns) if not (l.lower().startswith("dim") or l.lower().startswith("unnamed"))]
-    hover_data = [d for d in sorted(list(df.columns)) if (d.lower().find("unnamed") == -1 and d.lower().find("dim") == -1)]
-    hover_data.remove("timeUnix")
+    selectedData = [d for d in sorted(list(df.columns)) if (d.lower().find("unnamed") == -1)]
+    hover_data = [s for s in selectedData if s.lower().find("dim") == -1]
+    # hover_data.remove("timeUnix")
     attrList = hover_data.copy()
     attrList.remove("DateTime")
     attrList = [r.replace(r, f"{r}: {len(df[r].unique())}") for r in attrList]
@@ -144,7 +145,7 @@ def createInteractivePlot(dataModel : object, info : str):
                 }),
 
         # data being transferred to call back functions
-        dcc.Store(data = df.to_json(orient='split'), id = "dataFrame"),
+        dcc.Store(data = df[selectedData].to_json(orient='split'), id = "dataFrame"),
         dcc.Store(data = attrList, id = "attrList"),
         dcc.Store(data = info, id = "info"),
         dcc.Store(data = os.getpid(), id = "pid"),
@@ -233,7 +234,7 @@ def update_graph(dfjson, attribute, info, hover_data):
                             x=uiddf["Dim0"],
                             y=uiddf["Dim1"],
                             z=uiddf["Dim2"],
-                            customdata=uiddf,
+                            customdata=uiddf[hover_data],
                             hovertext = 
                             ['<br>'.join([f"{h}: {uiddf[h].iloc[n]}" for h in hover_data]) for n in range(len(uiddf))],
                             marker=dict(color=variable_colour, size=np.linspace(12, 4, len(uiddf)).astype(int)),
