@@ -4,6 +4,7 @@ import sys
 import numpy as np
 import pandas as pd
 from dataModel import DataModel
+from glob import glob
 
 # https://dash.plotly.com/interactive-graphing
 
@@ -212,7 +213,7 @@ class CSVData(DataModel):
 
     '''
 
-    def getData(self, identityPath: str, permissionPath: str, identityKey: str, permissionKey : str, permissionValue: str, trackHistorical = True):
+    def getData(self, identityPath: str, permissionPath: str, identityKey: str, permissionKey : str, permissionValue: str, limitData = 5):
 
         '''
         Ingest the raw information and process for the dataModel
@@ -233,8 +234,8 @@ class CSVData(DataModel):
         permissionValue : str
             The columns value used to model the relationships between the identities
 
-        trackHistorical : boolean
-            If True, if there are relevant files which contain historical data, track these. 
+        limitData : int, default = 5
+            The maximum number of historical files to process. 
 
         Outputs
         -----
@@ -247,10 +248,9 @@ class CSVData(DataModel):
         self.joinKeys["identity"] = identityKey
         self.joinKeys["permission"] = permissionKey
         self.permissionValue = permissionValue
-        self.trackHistorical = trackHistorical
 
         self.getIdentityData()
-        self.getPermissionData()
+        self.getPermissionData(limitData)
 
     def getIdentityData(self):
 
@@ -258,38 +258,64 @@ class CSVData(DataModel):
         Process the raw identity data
         '''
 
-        self.identityData = pd.read_csv(self.identityPath).dropna(how = 'all')
+        self.identityData = pd.read_csv(self.identityPath, dtype = str).dropna(how = 'all')
 
-    def getPermissionData(self):
+    def getPermissionData(self, limit):
 
         '''
         Process the raw permission data
         '''
 
-        permissionData = pd.read_csv(self.permissionPath).dropna(how = 'all')
+        # Read in all permission data which is stored from the wildcard search
+        pAll = None
+        idSelect = list(self.identityData[self.joinKeys['identity']].unique())
+        dataPaths = sorted(glob(self.permissionPath), reverse=False)[:limit]     # get up to the 5 most recent files
+
+        # read in multiple files and combine. This assumes that multiple files with the same 
+        # key name are temporal versions of the information
+        if len(dataPaths) > 1:
+            pivotSelect = f"{self.joinKeys['permission']}_DateTime"
+            for path in dataPaths:
+                date = path.split("_")[-1].split(".")[0]                    # get the information from the file name
+                pStore = pd.read_csv(path, dtype = str).dropna(how = 'all')
+                
+                # this is joining the identity and permission data as only the identities in the
+                # identityData are INCLUDED in the permission data
+                pStore = pStore[pStore[self.joinKeys['permission']].isin(idSelect)]
+                pStore[pivotSelect] = pStore[self.joinKeys['permission']] + f"_{date}"      # this is only needed for the pivot table
+                # pStore["_DateTime"] = f"_{date}"
+                if pAll is None:
+                    pAll = pStore
+                else:
+                    pAll = pd.concat([pAll, pStore])
+        else:
+            pivotSelect = self.joinKeys['permission']
+            pStore = pd.read_csv(path, dtype = str).dropna(how = 'all')
+            pAll = pStore[pStore[self.joinKeys['permission']].isin(idSelect)]
 
         # perform a pivot of the raw csv data to create a sparse matrix of occurence
-        headers = list(permissionData.columns)
+        headers = list(pAll.columns.unique())
         headers.remove(self.joinKeys['permission'])
         headers.remove(self.permissionValue)
-        permPivot = pd.pivot_table(permissionData, 
+        pivot = pd.pivot_table(pAll, 
                     values = [headers[0]], 
-                    columns=[self.joinKeys['permission']], 
+                    columns=[pivotSelect], 
                     index=[self.permissionValue], 
                     aggfunc = 'count', 
                     fill_value = 0)
-        permPivot.columns = permPivot.columns.droplevel(0)
-        permPivot = permPivot.reset_index()
-        permPivot = permPivot.set_index(self.permissionValue)
+        pivot.columns = pivot.columns.droplevel(0)
+        pivot = pivot.reset_index()
+        pivot = pivot.set_index(self.permissionValue)
 
-        # this is joining the identity and permission data as only the identities in the
-        # identityData are INCLUDED in the permission data
-        commonIdentities = permPivot.columns[permPivot.columns.isin(self.identityData[self.joinKeys['identity']])]
-        joinedPivot = permPivot[commonIdentities]
+        if pivotSelect != self.joinKeys['permission']:
+            self.categoriesHeader = [self.joinKeys['permission'], "_DateTime"]
+            self.categories = np.c_[[p.split("_") for p in pivot.columns]]
         
-        self.rawPermissionData = np.transpose(joinedPivot.to_numpy())
-        self.categoriesHeader = [self.joinKeys['permission']]
-        self.categories = np.c_[joinedPivot.columns]
+        else:
+            self.categoriesHeader = [self.joinKeys['permission']]
+            self.categories = np.c_[pivot.columns]
+
+        self.rawPermissionData = np.transpose(pivot.to_numpy())
         self.processingType = self.processType("Identity")
 
 # ----------- Data processing and visualisation (main function) ----------
@@ -317,11 +343,12 @@ def excelData(excelFile: str, sheetName: str, dims: int, identityID: str, permis
 def csvData():
     
     identityPath = "data\\IdentitiesFakeSmall.csv"
-    permissionPath = "data\\EntitlementsFake.csv"
+    identityPath = "data\\IdentitiesFake.csv"
+    permissionPath = "data\\EntitlementsFakeSmall*.csv"
     
     csvData = CSVData()
     csvData.getData(identityPath, permissionPath, "Username", "Identity", "Value")
-    csvData.calculateMDS(recalculate=False)
+    csvData.processData(recalculate=True)
     csvData.plotMDS()
 
 
