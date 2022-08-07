@@ -456,7 +456,7 @@ def update_graph(dfjson, attribute, uidAttr, hover_data, trackingToggle, sliderD
 
     # allow for multiple point selection
     fig.update_layout(
-        title = "\n".join(wrap(plotTitle, width = 100)),
+        title = "<br>".join(wrap(plotTitle, width = 100)),
         clickmode='event+select',
         width=1200, 
         height=600, 
