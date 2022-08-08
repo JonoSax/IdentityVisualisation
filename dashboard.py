@@ -16,6 +16,7 @@ from textwrap import wrap
 TODO
     - How to pass an object to the dash app, not just the attributes? Performance
     issues?
+    - Optimise dash computations with caching, parallelisation: https://dash.plotly.com/sharing-data-between-callbacks
 '''
 
 # Theme stuff: https://dash.plotly.com/external-resources 
@@ -25,7 +26,7 @@ app = Dash(__name__, external_stylesheets=external_stylesheets)
 
 def launchApp(dataModel : object, name = ""):
     
-    appObj = createInteractivePlot(dataModel, name)
+    appObj = createInteractivePlot(dataModel)
     webbrowser.open("http://127.0.0.1:8050/", new = 0, autoraise = True)
     try:
         appObj.run_server(debug = False)
@@ -34,7 +35,7 @@ def launchApp(dataModel : object, name = ""):
         launchApp(appObj)
 
 # create the dash application
-def createInteractivePlot(dataModel : object, info : str):
+def createInteractivePlot(dataModel : object):
 
     # get the list of desireable attributes
     # Remove the dim values
@@ -437,7 +438,7 @@ def update_graph(dfjson, attribute, uidAttr, hover_data, trackingToggle, sliderD
                     hover_data = hover_data,
                     color = attribute, 
                     title = plotTitle, 
-                    hover_name= attribute, 
+                    hover_name= uidAttr,  
                     )
 
             plotTitle = f"Plotting {len(dfTime)} identities colored based on {attribute} with full identity information from {allTimes[sliderDateValue]}"
