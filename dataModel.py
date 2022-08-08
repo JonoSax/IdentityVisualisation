@@ -25,6 +25,7 @@ class DataModel(object):
         [attribute]                 [object type]       [description]
         rawPermissionData:          (np.array),         Columns of identities/attributes and rows of permissions as boolean
         similarityPermissionData:   (np.array),         The relative similarity of every data point relative to each other
+        privilegedPermissions       (list),             A list of permissions which are privileged and are calculated differently
         identityData:               (pd.DataFrame),     Columns of identity attriutes and rows of identities which are unique (by some key)
         mdsResults:                 (pd.DataFrame),     The dimensionally reduced data with corresponding attributes (if applicable)
         categories:                 (list),             List of the individual attribute values use in the calculations
@@ -52,9 +53,10 @@ class DataModel(object):
 
         self.rawPermissionData = None
         self.similarityPermissionData = None
+        self.privilegedData = None
         self.identityData = None
         self.mdsResults = None
-        self.processingType = None
+        self.processingType = "identity"
         self.joinKeys = {"identity": None, "permission": None}
         self.permissionValue = None
         self.mdsSavedResults = None
@@ -98,7 +100,7 @@ class DataModel(object):
 
         return processingType
 
-    def processData(self, dims = 3, recalculate = True):
+    def processData(self, recalculate = True, dims = 3):
 
         '''
         Calculate the MDS of the information provided
@@ -159,8 +161,15 @@ class DataModel(object):
         if self.rawPermissionData is not None:
 
             print("     Calculating similarity matrix")
+            # the rawPermissionData MUST be a pandas dataframe with the columns being the permissions
+            # and the rows being the identities
 
-            x = self.rawPermissionData
+            # apply the impact of privileged permissions
+            if self.privilegedData is not None:
+                self.rawPermissionData[self.privilegedData["Permission"]] *= np.array(self.privilegedData["RelativePrivilege"].astype(int))
+            
+            # compute the relative similarity of each data point
+            x = self.rawPermissionData.to_numpy().astype(int)
             self.similarityPermissionData = np.dot(x, x.T)/np.sum(x, 1)
 
         dissimilarity = 1 - self.similarityPermissionData * self.similarityPermissionData.transpose()
@@ -185,17 +194,31 @@ class DataModel(object):
         # get n-dimension labels
         dimNames = [f"Dim{n}" for n in range(len(pos[0]))]
 
-        posdf = pd.DataFrame(np.hstack([pos, self.categories]), columns = [*dimNames, *self.categoriesHeader])
+        entitleExtract = pd.DataFrame(np.hstack([pos, self.categories]), columns = [*dimNames, *self.categoriesHeader])
 
         # merge all identity information if available, remove unnecessary columns, standardise headings to have no spaces
         if self.identityData is not None: 
             selectColums = [r for r in list(self.identityData.columns) if r.lower().find("unnamed") == -1]
             posidentitiesSelect = self.identityData[selectColums]
             formatColumns0 = [r.replace(" ", "") for r in list(posidentitiesSelect.columns)]
-            posidentities = posidentitiesSelect.set_axis(formatColumns0, axis=1, inplace=False)
+            identityExtract = posidentitiesSelect.set_axis(formatColumns0, axis=1, inplace=False)
+
+            # Join the data based on the available information 
+            if "_DateTime" in identityExtract.columns:
+                entitleExtract["_DateTime"] = entitleExtract["_DateTime"].astype(int)
+                identityExtract["_DateTime"] = identityExtract["_DateTime"].astype(int)
+                entitleExtract = entitleExtract.sort_values("_DateTime")
+                identityExtract = identityExtract.sort_values("_DateTime")
+                # match for identity extracts with the closest in time to the entitlement extract
+                # NOTE a tolerance of a week, tolerance = 604800
+                posdf = pd.merge_asof(entitleExtract, identityExtract, on = "_DateTime", left_by=self.joinKeys["permission"], right_by=self.joinKeys['identity'], direction="nearest")
+
+            else:
             
-            # NOTE maybe use how='inner' as the joining point to remove non-unique identities?
-            posdf = posdf.merge(posidentities, left_on=self.joinKeys["permission"], right_on=self.joinKeys["identity"], how='left')
+                posdf = pd.merge(entitleExtract, identityExtract, left_on=self.joinKeys['permission'])
+
+        else:
+            posdf = entitleExtract
 
         # update attribute
         self.mdsResults = posdf
