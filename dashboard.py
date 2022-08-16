@@ -11,6 +11,10 @@ from plotly.colors import qualitative as colours
 from plotly.colors import hex_to_rgb
 import numpy as np
 from textwrap import wrap
+import reporting
+
+pd.options.mode.chained_assignment = None
+
 
 '''
 TODO
@@ -21,7 +25,7 @@ TODO
 
 # Theme stuff: https://dash.plotly.com/external-resources 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
-# external_stylesheets = ['\\data\\bWLwgP.css']
+# external_stylesheets = [open('data\\bWLwgP.css', "r")]
 app = Dash(__name__, external_stylesheets=external_stylesheets)
 
 def launchApp(dataModel : object, name = ""):
@@ -45,12 +49,23 @@ def createInteractivePlot(dataModel : object):
     print("---Creating web server for plotting---")
     df = dataModel.mdsResults
 
+
     # attrList = [l for l in sorted(formatColumns) if not (l.lower().startswith("dim") or l.lower().startswith("unnamed"))]
     selectedData = [d for d in sorted(list(df.columns)) if (d.lower().find("unnamed") == -1)]
     hover_data = [s for s in selectedData if s.lower().find("dim") == -1]
     # hover_data.remove("timeUnix")
     attrList = hover_data.copy()
-    
+
+    reporting.report_1(df[selectedData], dataModel.rawPermissionData, dataModel.identityData, dataModel.joinKeys["identity"])
+
+    r = 0.2         # The extra bit to add to the graphs for scaling
+    xMinR = df["Dim0"].min()-r
+    xMaxR = df["Dim0"].max()+r
+    yMinR = df["Dim1"].min()-r
+    yMaxR = df["Dim1"].max()+r
+    zMinR = df["Dim2"].min()-r
+    zMaxR = df["Dim2"].max()+r        
+
     marks = {}
     if "_DateTime" in attrList:
         attrList.remove("_DateTime")
@@ -97,16 +112,63 @@ def createInteractivePlot(dataModel : object):
             'padding': '0px 5px'
         }),
 
-        # plotly figure
+        # main figure
         html.Div([
+
+            # range slider for x axis
+            html.Div([
+                dcc.RangeSlider(xMinR, xMaxR,
+                        value=[xMinR, xMaxR],
+                        id='slider-xAxis',
+                        disabled = False,
+                        marks = None,
+                        vertical = True,
+                        allowCross=False,
+                        tooltip={"placement": "bottom", "always_visible": True}
+                ),
+                # html.Div(id='slider-output'),
+                ], style={"margin-left": "15px", 'display': 'inline-block'}
+            ),
+
+            # range slider for y axis
+            html.Div([
+                dcc.RangeSlider(yMinR, yMaxR,
+                        value=[yMinR, yMaxR],
+                        id='slider-yAxis',
+                        disabled = False,
+                        marks = None,
+                        vertical = True,
+                        allowCross=False, 
+                        tooltip={"placement": "bottom", "always_visible": True}
+                ),
+                # html.Div(id='slider-output'),
+                ], style={'display': 'inline-block'}
+            ),
+
+            # range slider for z axis
+            html.Div([
+                dcc.RangeSlider(zMinR, zMaxR,
+                        value=[zMinR, zMaxR],
+                        id='slider-zAxis',
+                        disabled = False,
+                        marks = None,
+                        vertical = True,
+                        allowCross=False,
+                        tooltip={"placement": "bottom", "always_visible": True}
+                ),
+                # html.Div(id='slider-output'),
+                ], style={'display': 'inline-block'}
+            ),
+
+            # plotly figure
             html.Div([
                 dcc.Graph(
                     id='plotly_figure'
                 )
-            ], style={'width': '80%', 'height':'100%', 'display': 'inline-block'}
+            ], style={'width': '800', 'height':'600', 'display': 'inline-block'}
             ),
 
-            # slider for dates
+            # slider for clustering of points
             html.Div([
                 dcc.Slider(0, 1,
                         value=0,
@@ -117,10 +179,43 @@ def createInteractivePlot(dataModel : object):
                 ),
                 # html.Div(id='slider-output'),
                 ], style={'display': 'inline-block'}
-            )
+            ),
+    
+            html.Div([
+                # report1 button
+                html.Div([
+                    html.Button('Report 1', id='report_1', n_clicks=0),
+                    ], style={"margin-left": "15px", "margin-top": "15px"}
+                ),
+
+                # report2 button
+                html.Div([
+                    html.Button('Report 2', id='report_2', n_clicks=0),
+                    ], style={"margin-left": "15px", "margin-top": "15px"}
+                ),
+
+                # report3 button
+                html.Div([
+                    html.Button('Report 3', id='report_3', n_clicks=0),
+                    ], style={"margin-left": "15px", "margin-top": "15px"}
+                ),
+
+                # report4 button
+                html.Div([
+                    html.Button('Report 4', id='report_4', n_clicks=0),
+                    ], style={"margin-left": "15px", "margin-top": "15px"}
+                ),
+
+                # report5 button
+                html.Div([
+                    html.Button('Report 5', id='report_5', n_clicks=0),
+                    ], style={"margin-left": "15px", "margin-top": "15px"}
+                ),
+            ], style={'display': 'inline-block'})
+
         ]),
     
-        # first line of buttons
+        # first line of buttons below the plot
         html.Div([
             
             # toggle switch to change between tracking points and viewing historical data
@@ -147,7 +242,7 @@ def createInteractivePlot(dataModel : object):
             )
         ]),
 
-        # second line of buttons
+        # second line of buttons below the plot
         html.Div([
 
             # Save figure button
@@ -211,6 +306,7 @@ def createInteractivePlot(dataModel : object):
         dcc.Store(data = dataModel.joinKeys["identity"], id = "uidAttr"),
         dcc.Store(data = os.getpid(), id = "pid"),
         dcc.Store(data = hover_data, id = "hover_data"),
+        dcc.Store(data = "info", id = "info"),
 
         html.Div(id='output')
     ])
@@ -226,9 +322,12 @@ def createInteractivePlot(dataModel : object):
     Input('hover_data', 'data'), 
     Input('toggle-in', 'value'), 
     Input('slider-dates', 'value'), 
-    Input('slider-rounding', 'value')
+    Input('slider-rounding', 'value'),
+    Input('slider-xAxis', 'value'),
+    Input('slider-yAxis', 'value'),
+    Input('slider-zAxis', 'value')
     )
-def update_graph(dfjson, attribute, uidAttr, hover_data, trackingToggle, sliderDateValue, sliderRoundValue):
+def update_graph(dfjson, attribute, uidAttr, hover_data, trackingToggle, sliderDateValue, sliderRoundValue, sliderXScale, sliderYScale, sliderZScale):
 
     '''
     Take in the raw data and selected information and create visualisation
@@ -295,25 +394,31 @@ def update_graph(dfjson, attribute, uidAttr, hover_data, trackingToggle, sliderD
             # ----------- TESTING FOR ATTRIBUTES -----------
 
             # Combine the individual positions and take the median positions of all identities for the particular
-            # attribute and dates
-            allAttrs = df[attribute].unique()
-            data = []
-            for a in allAttrs:
-                dfAttrId = df[df[attribute] == a]
-                for t in allTimes:
-                    data.append([
-                        np.median(dfAttrId[dfAttrId["_DateTime"] == t]["Dim0"]), 
-                        np.median(dfAttrId[dfAttrId["_DateTime"] == t]["Dim1"]), 
-                        np.median(dfAttrId[dfAttrId["_DateTime"] == t]["Dim2"]), 
-                        len(dfAttrId[dfAttrId["_DateTime"] == t]),
-                        a,
-                        t
-                        ])
+            # attribute and dates if the attribute selected is not the unique identifier
+            if attribute != uidAttr:
+                allAttrs = df[attribute].unique()
+                data = []
+                for a in allAttrs:
+                    dfAttrId = df[df[attribute] == a]
+                    for t in allTimes:
+                        data.append([
+                            np.median(dfAttrId[dfAttrId["_DateTime"] == t]["Dim0"]), 
+                            np.median(dfAttrId[dfAttrId["_DateTime"] == t]["Dim1"]), 
+                            np.median(dfAttrId[dfAttrId["_DateTime"] == t]["Dim2"]), 
+                            len(dfAttrId[dfAttrId["_DateTime"] == t]),
+                            a,
+                            t
+                            ])
 
-            hover_data = ["Count", attribute, "_DateTime"]
-            dfTrack = pd.DataFrame(data, columns = ["Dim0", "Dim1", "Dim2"] + hover_data)
-            dfTrack = dfTrack.combine_first(pd.DataFrame(columns=df.columns))
-            uniqueIDs = dfTrack[attribute].unique()
+                hover_data = ["Count", attribute, "_DateTime"]
+                dfTrack = pd.DataFrame(data, columns = ["Dim0", "Dim1", "Dim2"] + hover_data)
+                dfTrack = dfTrack.combine_first(pd.DataFrame(columns=df.columns))
+                uniqueIDs = dfTrack[attribute].unique()
+
+            # if the selected attribute is the unique identifier, provide all data (there will
+            # no combining of data)
+            else:
+                dfTrack = df
 
             dfTrack = dfTrack.sort_values("_DateTime")
             uidAttr = attribute
@@ -347,34 +452,6 @@ def update_graph(dfjson, attribute, uidAttr, hover_data, trackingToggle, sliderD
 
             plotTitle = f"Tracking {len(uniqueIDs)} identities grouped by {attribute} from {allTimes[0]} to {allTimes[-1]}"
 
-            '''
-            for uid in uniqueIDs:
-                # get all the unique entries for this unique identity
-                uiddf = df[df[uidAttr] == uid]
-
-                selected_colours = [colourDict[attr][unix] for attr, unix in zip(uiddf[attribute], uiddf["_DateTime"])]
-                selected_sizes = [timeDict[t] for t in uiddf["_DateTime"]]
-                # set the colours so that the newest data pont is 100% opacity and the oldest data point is 40% opacity
-                name = [u for u in uiddf[attribute] if u != "None"][0]
-
-                # doco: https://plotly.github.io/plotly.py-docs/generated/plotly.graph_objects.Scatter3d.html
-                fig.add_trace(
-                        go.Scatter3d(
-                            x=uiddf["Dim0"],
-                            y=uiddf["Dim1"],
-                            z=uiddf["Dim2"],
-                            customdata=uiddf[hover_data],
-                            hovertext = 
-                            ['<br>'.join([f"{h}: {uiddf[h].iloc[n]}" for h in hover_data]) for n in range(len(uiddf))],
-                            marker=dict(color=selected_colours, size=selected_sizes),
-                            line = dict(color=selected_colours),
-                            name = name,            # NOTE this must be a string/number
-                            legendgroup = name,     # NOTE this must be a string/number
-                            # connectgaps=True        # NOTE for some reason this isn't acutally connecting gaps.... maybe wrong data type for empty? 
-                        )
-                    )
-            '''
-            
             # remove duplicate legend entries
             # NOTE this may be useful to update the plots rather than re-generating them?
             # https://plotly.com/python-api-reference/generated/plotly.graph_objects.Figure.html#plotly.graph_objects.Figure.for_each_trace
@@ -443,13 +520,16 @@ def update_graph(dfjson, attribute, uidAttr, hover_data, trackingToggle, sliderD
 
             plotTitle = f"Plotting {len(dfTime)} identities colored based on {attribute} with full identity information from {allTimes[sliderDateValue]}"
 
-        # NOTE i don't think this is actually doing anything....
-        
+        # get the user selected slider values
+        xMin, xMax = sliderXScale
+        yMin, yMax = sliderYScale
+        zMin, zMax = sliderZScale
+
         fig.update_layout(
             scene = {
-                'xaxis': dict(range=[min(df["Dim0"])-r, max(df["Dim0"])+r]),
-                'yaxis': dict(range=[min(df["Dim1"])-r, max(df["Dim1"])+r]),
-                'zaxis': dict(range=[min(df["Dim2"])-r, max(df["Dim2"])+r]),
+                'xaxis': dict(nticks = 7, range=[xMin, xMax]),
+                'yaxis': dict(nticks = 7, range=[yMin, yMax]),
+                'zaxis': dict(nticks = 7, range=[zMin, zMax]),
                 'aspectmode': 'cube'
                 }
             )
@@ -459,7 +539,7 @@ def update_graph(dfjson, attribute, uidAttr, hover_data, trackingToggle, sliderD
     fig.update_layout(
         title = "<br>".join(wrap(plotTitle, width = 100)),
         clickmode='event+select',
-        width=1200, 
+        width=800, 
         height=600, 
         hovermode='closest'
     )
@@ -495,6 +575,24 @@ def save_plot(click, fig, info, selectedAttr):
         go.Figure(fig).write_html(plotName)
         
         print(f"     Plot saved at {plotName}\n")
+
+    return 0
+
+# report 1
+@app.callback(Output('report_1', 'n_clicks'),
+    Input('report_1', 'n_clicks'),
+    Input('dataFrame', 'data'),
+    Input('selectedDropDown', 'value'),
+    Input('uidAttr', 'data')
+    )
+def report_1(click, dfjson, selectedAttr, uidAttr):
+
+    if click:
+
+        df = pd.read_json(dfjson, orient='split')
+        attribute = selectedAttr.split(":")[0]
+
+        reporting.report_1(df, attribute, uidAttr)
 
     return 0
 
