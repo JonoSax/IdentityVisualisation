@@ -3,7 +3,6 @@ import numpy as np
 import pandas as pd
 from time import localtime, strftime
 from openpyxl import Workbook
-from sklearn import manifold
 
 from utilities import mdsCalculation
 
@@ -23,7 +22,7 @@ class Metrics:
 
         self.mdsResult = self.setdf(mdsResult)
         self.key = uiddf
-        self.attribute = [attribute]
+        self.attribute = attribute
         self.permissions = permissions.copy()
 
         # NOTE this is only until the datamodel object is updated for multi-index as well
@@ -69,7 +68,7 @@ class Metrics:
 
         return(df)
 
-    def calculateDistances(self):
+    def calculateDistances(self, df = None, attr = None):
 
         '''
         Calculate the distances of all object in each attribute unless specified
@@ -78,27 +77,31 @@ class Metrics:
         calculate the distances retrospectively to assess the movement of individuals over time
         '''
 
-        if self.attribute == [None]:
-            attr = list(self.mdsResult.columns)
+        ret = type(df) == pd.DataFrame
+        if df is None:
+            df = self.mdsResult
+
+        if attr is None:
+            attr = list(df.columns)
             attr = [a for a in attr if 
                 "Dim" not in a and              # remove the positions
                 "_DateTime" not in a and        # remove the date times
                 "Unnamed" not in a and          # remove the unnamed column that appears randomly 
                 self.key not in a and              # remove the unique identifier
-                len(self.mdsResult[a].unique()) < len(self.mdsResult)/len(self.mdsResult["_DateTime"].unique())]    # remove any entry which appears only once
+                len(df[a].unique()) < len(df)/len(df["_DateTime"].unique())]    # remove any entry which appears only once
             self.attribute = attr
 
-        dfAll = self.mdsResult.copy()
+        dfAll = df.copy()
         newCols = [f"_Distance{a}" for a in attr]
         for a, newCol in zip(attr, newCols):
 
-            attributeValues = self.mdsResult[a].unique()
+            attributeValues = df[a].unique()
             
             # Calculate the distance of all identities in each element from the median point at the 
             # most recently recorded permission extract
             dfCopy = None
             for av in attributeValues:
-                dfAttr = self.mdsResult[self.mdsResult[a] == av][["Dim0", "Dim1", "Dim2", self.key, "_DateTime", a]]
+                dfAttr = df[df[a] == av][["Dim0", "Dim1", "Dim2", self.key, "_DateTime", a]]
 
                 centrePoint = np.median(dfAttr[dfAttr["_DateTime"] == self.getLatestTime(dfAttr)][["Dim0", "Dim1", "Dim2"]], 0)
                 dists = np.sum((dfAttr[["Dim0", "Dim1", "Dim2"]] - centrePoint)**2, 1)
@@ -109,9 +112,15 @@ class Metrics:
                 else:
                     dfCopy = pd.concat([dfCopy, dfAttr])
         
-            dfAll = pd.merge(dfAll, dfCopy[[self.key, "_DateTime", newCol]], on=[self.key, "_DateTime"])
+            # add the new column in with the info
+            dfAll = pd.merge(dfAll, dfCopy[[self.key, "_DateTime", newCol]], on=[self.key, "_DateTime"], validate="many_to_one")
 
-        self.dfDistances = dfAll[[self.key, "_DateTime"] + newCols].set_index([self.key, "_DateTime"])
+        dfAll = dfAll[[self.key, "_DateTime"] + newCols].sort_values([self.key, "_DateTime"]).set_index([self.key, "_DateTime"])
+
+        if ret:
+            return dfAll
+        else:
+            self.dfDistances = dfAll
 
     def findOutliers(self):
 
@@ -159,10 +168,7 @@ class Metrics:
         for t in times:
 
             outlierIdsTime = self.outlierdf.loc[(slice(None), t), :].droplevel(1)
-            
             identityTimes = self.identities.loc[(slice(None), t), :].droplevel(1)
-            # identityTimes = self.identities[self.identities["_DateTime"] == t]
-            
             permissionTimes = self.permissions.loc[(slice(None), t), :].droplevel(1).T
             permissionTimes.columns = [p.split("_")[0] for p in permissionTimes.columns]
 
@@ -170,10 +176,7 @@ class Metrics:
                 idtype = data["type"]
 
                 idattr = self.identities.loc[(id, t)][data["type"]]
-                # idattr = self.identities[(self.identities[self.key] == id) & (self.identities["_DateTime"] == t)][data["type"]].values[0]
-
                 attrIdentities = [i for i in identityTimes[(identityTimes[idtype] == idattr)].index if i in permissionTimes.columns]
-                # attrIdentities = [i for i in identityTimes[(identityTimes[idtype] == idattr)][self.key] if i in permissionTimes.columns]
 
                 # get the permission to compare and the permissions of the target identity
                 relevantPermissions = permissionTimes[attrIdentities]
@@ -255,7 +258,6 @@ class Metrics:
 
         latestIdentities = self.identities.loc[(slice(None), latestTime), :].droplevel(1)
         latestPermissions = self.permissions.loc[(slice(None), latestTime), :].droplevel(1)
-        # latestIdentities = self.identities[self.identities["_DateTime"] == latestTime]
         elementAnalysis = pd.DataFrame(None, columns=["Attribute", "Element", "IDCount", "MinPermissions", "LowerQuartile", "Median", "UpperQuartile", "MaxPermissions"])
         elementSpread = pd.DataFrame(None, columns=["Attribute", "Element", "IDCount", "RelativeStandardDeviation", "RelativeSpread"])
         for attr in sorted(self.attribute):
@@ -264,14 +266,12 @@ class Metrics:
             for ele in sorted(element):
                 # get the identities in the specific element from the permissions dataframe
                 # DONT merge the data though just because we don't actually need a dataframe that big...
-                # ids = [id for id in latestIdentities[latestIdentities[attr] == ele][self.key] if f"{id}_{latestTime}" in list(self.permissions.index)]
                 ids = [id for id in latestIdentities[latestIdentities[attr] == ele].index.get_level_values(0) if id in latestPermissions.index]
                 
 
                 # Analyse the association of permissions per element
                 if len(ids) > 0:
                     elePermissions = latestPermissions.loc[ids,:]
-                    # elePermissions = self.permissions.loc[[f"{id}_{latestTime}" for id in ids]]
                     idSum = elePermissions.sum(1).describe()
                     elementAnalysis.loc[len(elementAnalysis)] = [attr, ele, idSum["count"], idSum["min"], idSum["25%"], idSum["50%"], idSum["75%"], idSum["max"]]
 
@@ -324,17 +324,6 @@ class Metrics:
         for _, info in elementSpread[:10].iterrows():
             addToReport(wsSummary, rowNo, info)
 
-        # report on affected users and the number of actions needed to rememdy
-        idsAffected = self.rawOutlierInfo[["Value", self.key]].groupby(self.key).count().sort_values("Value", ascending = False).reset_index()
-        userValue = self.rawOutlierInfo.groupby([self.key, "Value"]).size().reset_index().rename(columns={0:"Count"}).sort_values("Count")
-        
-        # report on the 10 most mentioned permissions and the number of identities it affects
-        permissionsAffected = self.rawOutlierInfo["Value"].value_counts().to_frame("Count").reset_index().rename(columns={"index": "Value"})
-
-        # report on the attributes and their elements most affected
-        elementsAffected = self.rawOutlierInfo[["Value", "Element"]].groupby("Element").count().sort_values("Value", ascending = False)
-
-
         # -------------- Priority Actions --------------
         '''
         Taking into account both the number of times an individual permission appears as an important
@@ -367,28 +356,20 @@ class Metrics:
         wsPriorityActions.cell(row=1, column=1).value = "Priority actions to resolve"   
         wsPriorityActions.cell(row=2, column=1).value = "The following information outlines the 10 permissions which are causing the greatest identity discrepancy"
         
-            # ------ Specifying which permissions to remove off identities
-        addToReport(wsPriorityActions, 4, 
-                ["Permissions to action", 
-                "Action to take", 
-                "Identities impacted", 
-                "Attributes impacted", 
-                "Likelihood of impact"]
-                )
-
-            # ------ Calculations ------
+            # ------ Calculations to specify the impact of permission modification ------
         priority = self.rawOutlierInfo.copy()
         priority["NetOccurence"] = np.abs(priority["Occurence"])
         priority = priority.groupby("Value").sum("NetOccurence").sort_values("NetOccurence", ascending = False).reset_index()
 
         priorityPermissions = list(priority["Value"])
 
-        # for n, pi in enumerate(priority["Value"][:10], 5):
-        rowNo = 5
+        rowNo = np.array(4)
         removeC = 0
         addC = 0
         removePermission = {}
         addPermission = {}
+        idsImpacted = []
+        priorityInfo = []
         # For up to 10 permissions (max of 7 to either add or remove), investigate the permissions to 
         # prioritise actions for
         while removeC + addC < 10 and len(priorityPermissions) > 0:
@@ -406,10 +387,10 @@ class Metrics:
                     ", ".join(list(removeP["Attribute"].unique())), 
                     f"{int((np.abs(removeP['Occurence']).min())*100)}% - {int((np.abs(removeP['Occurence']).max())*100)}%"
                 ]
-                addToReport(wsPriorityActions, rowNo, removeinfo)
+                priorityInfo.append(removeinfo)
                 removeC += 1
-                rowNo += 1
                 removePermission[pi] = ids
+                idsImpacted += ids
 
             # To add the permissions
             addP = pAnalysis[pAnalysis["Occurence"]<0]
@@ -422,35 +403,30 @@ class Metrics:
                     ", ".join(list(addP["Attribute"].unique())), 
                     f"{int((np.abs(addP['Occurence']).min())*100)}% - {int((np.abs(addP['Occurence']).max())*100)}%"
                 ]
-                addToReport(wsPriorityActions, rowNo, addinfo)
+                priorityInfo.append(addinfo)
                 addC += 1
-                rowNo += 1
                 addPermission[pi] = ids
+                idsImpacted += ids
 
-        # MODEL CHANGES WITH PRIORITY PERMISSIONS MADE
-        '''
-        
+        # get the unique entries of ids
+        idsImpacted = list(set(idsImpacted))
+
+        '''        
         Re-run the MDS with the added and removed permissions and re-calculate the distances of each 
         identity. 
 
         Identify the % changed distances from the median of their element and whether it is now within 
         the acceptable boundaries or if it requires further action (ie see the important actions sheet). 
-        
         '''
 
         latestPermissions = self.permissions.loc[(slice(None), latestTime), :].droplevel(1).copy()
-        # latestPermissions = self.permissions.loc[[i for i in self.permissions.index if str(latestTime) in i]].copy()
         modLatestPermissions = latestPermissions.copy()
 
         # create the permission data frame from the latest time export
-        # latestPermissions["Type"] = "Original"
-        # latestPermissions.set_index("Type", append = True, inplace = True)
         latestPermissions[[self.key, "Type"]] = [[m.split("_")[0], "Original"] for m in latestPermissions.index]
         latestPermissions = latestPermissions.set_index([self.key, "Type"])
 
         # create a permission data frame to modify the permission environment
-        # modLatestPermissions["Type"] = "Modified"
-        # modLatestPermissions.set_index("Type", append = True, inplace = True)
         modLatestPermissions[[self.key, "Type"]] = [[m.split("_")[0], "Modified"] for m in modLatestPermissions.index]
         modLatestPermissions = modLatestPermissions.set_index([self.key, "Type"])
 
@@ -471,8 +447,39 @@ class Metrics:
         # merge all the positional and identity data together
         entitleExtract = pd.DataFrame(np.hstack([perMos, np.array(list(allPerm.index))]), columns = [*dimNames, *allPerm.index.names])
         entitleExtract = entitleExtract.merge(self.identities.loc[(slice(None), latestTime), :].reset_index(), on=self.key)
-
+        entitleExtract[["Dim0", "Dim1", "Dim2"]] = entitleExtract[["Dim0", "Dim1", "Dim2"]].astype(float)
+        entitleExtract["_DateTime"] = entitleExtract["_DateTime"].astype(int)
+        entitleExtract.loc[entitleExtract["Type"] == "Modified", "_DateTime"] = latestTime + 1      # iterate the latest time to create the "future" permission
+        
         #### RERUN THE OUTLIER CALCULATIONS AND THE DISTANCE FROM THE MEDIAN POINT
+        dfNew = self.calculateDistances(entitleExtract, self.attribute)
+        oldDists = [dfNew.loc[i].loc[latestTime] for i in idsImpacted]
+        newDists = [dfNew.loc[i].loc[latestTime + 1] for i in idsImpacted]
+        distInfo = pd.DataFrame([1-n/o for n, o in zip(newDists, oldDists)], index = idsImpacted)
+        distDesc = pd.Series(np.hstack(1-np.array(newDists)/np.array(oldDists))).describe()
+
+        prioritySummary = [
+            "The impact of performing the following modification to the identities and permissions is a:",
+            f"{int(distDesc['min']*100)} to {int(distDesc['max']*100)}% reduction in permission distances across all elements for an median of {int(distDesc['50%']*100)}%",
+            f"{distInfo.T.max().idxmax()} in attribute {distInfo.max().idxmax().replace('_Distance', '')} will improve the most"
+        ]
+
+        for p in prioritySummary:
+            addToReport(wsPriorityActions, rowNo, [p])
+
+        rowNo += 1
+
+        addToReport(wsPriorityActions, rowNo, 
+            ["Permissions to action", 
+            "Action to take", 
+            "Identities impacted", 
+            "Attributes impacted", 
+            "Likelihood of impact"]
+            )
+
+        # write the priority report
+        for info in priorityInfo:
+            addToReport(wsPriorityActions, rowNo, info)
 
         # -------------- Important Actions --------------
         wsImportantActions = wb.create_sheet("Import Actions")
@@ -525,9 +532,7 @@ class Metrics:
         # -------------- All info ------------------
         wsAllInformation = wb.create_sheet("Raw Outlier Data")
         wsAllInformation.cell(row=1, column=1).value = "Raw data used for the Priority and Important actions"           
-        addToReport(wsAllInformation, 2, 
-            list(self.rawOutlierInfo.columns)
-            )
+        addToReport(wsAllInformation, 2, list(self.rawOutlierInfo.columns))
 
         '''
         for r in dataframe_to_rows(self.rawOutlierInfo, index=True, header=True):
