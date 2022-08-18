@@ -49,13 +49,20 @@ def mdsCalculation(permissionData: pd.DataFrame, privilegedData = None, dims = 3
     mds = manifold.MDS( 
         n_components=dims, 
         # max_iter=1,
-        eps=1e-6,
+        eps=1e-9,
         random_state=np.random.RandomState(seed=3),
         dissimilarity="precomputed",
         n_jobs=1, 
         verbose=2, 
         metric = True
     )
+
+    isomap = manifold.Isomap(
+        n_neighbors = 10,
+        n_components = 3,
+    )
+
     pos = mds.fit(dissimilarity).embedding_
+    # pos = isomap.fit(dissimilarity).embedding_
 
     return(pos)
