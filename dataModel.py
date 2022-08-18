@@ -142,7 +142,7 @@ class DataModel(object):
             recalculate = len(csvFiles) == 0
 
         # if either forced to recalculate or no relevant files found, recalculate the MDS, else load the relevant file
-        if not recalculate:
+        if recalculate:
 
             print("     Recalculation beginning")
             self.calculateMDS(dims)
@@ -168,6 +168,10 @@ class DataModel(object):
         dimNames = [f"Dim{n}" for n in range(len(pos[0]))]
 
         entitleExtract = pd.DataFrame(np.hstack([pos, self.categories]), columns = [*dimNames, *self.categoriesHeader])
+
+        # force the positions and datetime to be float/int
+        entitleExtract[["Dim0", "Dim1", "Dim2"]] = entitleExtract[["Dim0", "Dim1", "Dim2"]].astype(float)
+        entitleExtract["_DateTime"] = entitleExtract["_DateTime"].astype(int)
 
         # merge all identity information if available, remove unnecessary columns, standardise headings to have no spaces
         if self.identityData is not None: 
