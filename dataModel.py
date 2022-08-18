@@ -5,6 +5,7 @@ from glob import glob
 from datetime import datetime
 import os
 from dashboard import launchApp
+from utilities import *
 
 # NOTE this has been set to turn off unnecessary warnings regarding a df modification in the 
 # plotMDS function
@@ -24,7 +25,6 @@ class DataModel(object):
         '''
         [attribute]                 [object type]       [description]
         rawPermissionData:          (np.array),         Columns of identities/attributes and rows of permissions as boolean
-        similarityPermissionData:   (np.array),         The relative similarity of every data point relative to each other
         privilegedPermissions       (list),             A list of permissions which are privileged and are calculated differently
         identityData:               (pd.DataFrame),     Columns of identity attriutes and rows of identities which are unique (by some key)
         mdsResults:                 (pd.DataFrame),     The dimensionally reduced data with corresponding attributes (if applicable)
@@ -52,7 +52,6 @@ class DataModel(object):
         self.categoriesHeader = None
 
         self.rawPermissionData = None
-        self.similarityPermissionData = None
         self.privilegedData = None
         self.identityData = None
         self.mdsResults = None
@@ -143,7 +142,7 @@ class DataModel(object):
             recalculate = len(csvFiles) == 0
 
         # if either forced to recalculate or no relevant files found, recalculate the MDS, else load the relevant file
-        if recalculate:
+        if not recalculate:
 
             print("     Recalculation beginning")
             self.calculateMDS(dims)
@@ -157,38 +156,12 @@ class DataModel(object):
 
     def calculateMDS(self, dims):
 
-        # if only raw data provided then perform the similarities calculation
-        if self.rawPermissionData is not None:
+        print("     Calculating similarity matrix")
+        # the rawPermissionData MUST be a pandas dataframe with the columns being the permissions
+        # and the rows being the identities
 
-            print("     Calculating similarity matrix")
-            # the rawPermissionData MUST be a pandas dataframe with the columns being the permissions
-            # and the rows being the identities
-
-            # apply the impact of privileged permissions
-            if self.privilegedData is not None:
-                self.rawPermissionData[self.privilegedData["Permission"]] *= np.array(self.privilegedData["RelativePrivilege"].astype(int))
-            
-            # compute the relative similarity of each data point
-            x = self.rawPermissionData.to_numpy().astype(int)
-            self.similarityPermissionData = np.dot(x, x.T)/np.sum(x, 1)
-
-        dissimilarity = 1 - self.similarityPermissionData * self.similarityPermissionData.transpose()
-
-        # perform dimensionality reduction
-        print("     Starting mds fit")
-
-        mds = manifold.MDS( 
-            n_components=dims, 
-            # max_iter=1,
-            eps=1e-6,
-            random_state=np.random.RandomState(seed=3),
-            dissimilarity="precomputed",
-            n_jobs=1, 
-            verbose=2, 
-            metric = True
-        )
-        pos = mds.fit(dissimilarity).embedding_
-
+        # apply the impact of privileged permissions
+        pos = mdsCalculation(self.rawPermissionData, self.privilegedData)
         print(f"     Fitting complete")
 
         # get n-dimension labels
