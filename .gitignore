@@ -1,9 +1,7 @@
 venv*/
 dist/
 build/
-data/
 results/
 old/
 .vscode
 *.xls*
-*.csv
