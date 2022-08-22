@@ -56,8 +56,6 @@ def createInteractivePlot(dataModel : object):
     # hover_data.remove("timeUnix")
     attrList = hover_data.copy()
 
-    reporting.report_1(df[selectedData], dataModel.rawPermissionData, dataModel.identityData, dataModel.joinKeys["identity"])
-
     r = 0.2         # The extra bit to add to the graphs for scaling
     xMinR = df["Dim0"].min()-r
     xMaxR = df["Dim0"].max()+r
@@ -77,11 +75,15 @@ def createInteractivePlot(dataModel : object):
 
         # create the marks for the slider
         dttimes = df["_DateTime"].unique()
+        # dtlabel = df["_DateTimeFormat"].unique()
 
         marks = {n: {'label': d} for n, d in enumerate(dttimes)}
+        # marks = {dn: {'label': dt} for dn, dt in zip(dttimes, dtlabel)}
 
 
-    attrList = [r.replace(r, f"{r}: {len(df[r].unique())}") for r in attrList]
+    attrArray = np.array([[r, len(df[r].unique())] for r in attrList])
+    dropDownStart = ": ".join(attrArray[attrArray[:, 1].astype(int).argsort()][0])
+    dropDownOpt = [": ".join(a) for a in attrArray]
 
     # for values which are numeric, convert their values into a ranked position so that 
     # on the heat maps it can show up easily
@@ -102,9 +104,11 @@ def createInteractivePlot(dataModel : object):
         html.Div([
             html.Div([
                 dcc.Dropdown(
-                    attrList,
-                    [a for a in attrList if a.find("LONG") == -1][0],     # ensure an attribute which isn't LONG is selected
+                    dropDownOpt,
+                    dropDownStart,     # select an attribute with the fewest variables initially
                     id='selectedDropDown',
+                    multi = False,      # for selecting multiple values set to true
+                    clearable = False
                 )
             ],
             style={'width': '49%', 'display': 'inline-block'})
@@ -212,7 +216,6 @@ def createInteractivePlot(dataModel : object):
                     ], style={"margin-left": "15px", "margin-top": "15px"}
                 ),
             ], style={'display': 'inline-block'})
-
         ]),
     
         # first line of buttons below the plot
@@ -301,7 +304,9 @@ def createInteractivePlot(dataModel : object):
                 }),
 
         # data being transferred to call back functions
-        dcc.Store(data = df[selectedData].to_json(orient='split'), id = "dataFrame"),
+        dcc.Store(data = df[selectedData].to_json(orient='split'), id = "identityRepresentations"),
+        dcc.Store(data = dataModel.rawPermissionData.to_json(orient='split'), id = "rawPermissionData"),
+        dcc.Store(data = dataModel.identityData.to_json(orient='split'), id = "identityData"),
         dcc.Store(data = attrList, id = "attrList"),
         dcc.Store(data = dataModel.joinKeys["identity"], id = "uidAttr"),
         dcc.Store(data = os.getpid(), id = "pid"),
@@ -316,7 +321,7 @@ def createInteractivePlot(dataModel : object):
 
 # plotly figure updates
 @app.callback(Output('plotly_figure', 'figure'),
-    Input('dataFrame', 'data'),
+    Input('identityRepresentations', 'data'),
     Input('selectedDropDown', 'value'),
     Input('uidAttr', 'data'), 
     Input('hover_data', 'data'), 
@@ -345,204 +350,195 @@ def update_graph(dfjson, attribute, uidAttr, hover_data, trackingToggle, sliderD
     attribute = attribute.split(":")[0]
     plotTitle = f"{dims}D visualising {attribute} for {len(df)} data points"
 
-    # set the constant for x, y, z scaling (0 = exact fit for data, 0.1 = 10% larger etc)
-    r = 0.1
+    # ---------- Track attributes across the time inputs ----------
+    if trackingToggle:
 
-    # NOTE 2D plotting is not being suppored atm.
-    if dims == 2:
-        print(f"     Creating 2D plotting for {attribute}")
-        fig = px.scatter(df, 
-                x=df["Dim0"], 
-                y=df["Dim1"],
-                hover_data = hover_data,
-                color = attribute,
-                title = plotTitle, 
-                hover_name= attribute
-                )
+        print(f"     Tracking historical data with 3D plotting for {attribute}")
+
+        uniqueIDs = df[uidAttr].unique()
+        allSizes = np.linspace(4, 12, len(allTimes)).astype(int)
+
+        fig = go.Figure()
+        colourDict = {}
+
+        # create a dictionary to colour the traces depending on the attribute and time of the data
+        transparency = np.linspace(0.4, 1, len(allTimes))
+        for n_c, c in enumerate(sorted(df[attribute].unique())):
+            colourDict[str(c)] = {}
+            for n_a, a in enumerate(allTimes):
+                colourDict[str(c)][a] = f"rgba{tuple(np.append(hex_to_rgb(colours.Plotly[n_c%len(colours.Plotly)]), transparency[n_a]))}"
         
-        fig.update_layout(
-            scene = dict(
-                xaxis = dict(range=[min(df["Dim0"])*(1-r), max(df["Dim0"])*(1+r)]),
-                yaxis = dict(range=[min(df["Dim1"])*(1-r), max(df["Dim1"])*(1+r)])
-                ))
+        # create the size dictionary
+        timeDict = {}
+        for t, s in zip(allTimes, allSizes):
+            timeDict[t] = s
 
-    elif dims == 3:
+        # Combine the individual positions and take the median positions of all identities for the particular
+        # attribute and dates if the attribute selected is not the unique identifier
+        if attribute != uidAttr:
+            allAttrs = df[attribute].unique()
+            data = []
+            for a in allAttrs:
+                dfAttrId = df[df[attribute] == a]
+                for t in allTimes:
+                    data.append([
+                        np.median(dfAttrId[dfAttrId["_DateTime"] == t]["Dim0"]), 
+                        np.median(dfAttrId[dfAttrId["_DateTime"] == t]["Dim1"]), 
+                        np.median(dfAttrId[dfAttrId["_DateTime"] == t]["Dim2"]), 
+                        len(dfAttrId[dfAttrId["_DateTime"] == t]),
+                        a,
+                        t
+                        ])
 
-        # if there is temporal versions of the data, plot the traces 
-        if trackingToggle:
+            hover_data = ["Count", attribute, "_DateTime"]
+            dfTrack = pd.DataFrame(data, columns = ["Dim0", "Dim1", "Dim2"] + hover_data)
+            dfTrack = dfTrack.combine_first(pd.DataFrame(columns=df.columns))
+            uniqueIDs = dfTrack[attribute].unique()
 
-            print(f"     Tracking historical data with 3D plotting for {attribute}")
+        # if the selected attribute is the unique identifier, provide all data (there will
+        # no combining of data)
+        else:
+            dfTrack = df
 
-            uniqueIDs = df[uidAttr].unique()
-            allSizes = np.linspace(4, 12, len(allTimes)).astype(int)
+        dfTrack = dfTrack.sort_values("_DateTime")
+        uidAttr = attribute
 
-            fig = go.Figure()
-            colourDict = {}
+        for uid in uniqueIDs:
+            # get all the unique entries for this unique identity
+            uiddf = dfTrack[dfTrack[uidAttr] == uid]
 
-            # create a dictionary to colour the traces depending on the attribute and time of the data
-            transparency = np.linspace(0.4, 1, len(allTimes))
-            for n_c, c in enumerate(sorted(df[attribute].unique())):
-                colourDict[str(c)] = {}
-                for n_a, a in enumerate(allTimes):
-                    colourDict[str(c)][a] = f"rgba{tuple(np.append(hex_to_rgb(colours.Plotly[n_c%len(colours.Plotly)]), transparency[n_a]))}"
-            
-            # create the size dictionary
-            timeDict = {}
-            for t, s in zip(allTimes, allSizes):
-                timeDict[t] = s
+            selected_colours = [colourDict[attr][unix] for attr, unix in zip(uiddf[attribute], uiddf["_DateTime"])]
+            selected_sizes = [timeDict[t] for t in uiddf["_DateTime"]]
+            # set the colours so that the newest data pont is 100% opacity and the oldest data point is 40% opacity
+            name = [u for u in uiddf[attribute] if u != "None"][0]
 
-            # ----------- TESTING FOR ATTRIBUTES -----------
-
-            # Combine the individual positions and take the median positions of all identities for the particular
-            # attribute and dates if the attribute selected is not the unique identifier
-            if attribute != uidAttr:
-                allAttrs = df[attribute].unique()
-                data = []
-                for a in allAttrs:
-                    dfAttrId = df[df[attribute] == a]
-                    for t in allTimes:
-                        data.append([
-                            np.median(dfAttrId[dfAttrId["_DateTime"] == t]["Dim0"]), 
-                            np.median(dfAttrId[dfAttrId["_DateTime"] == t]["Dim1"]), 
-                            np.median(dfAttrId[dfAttrId["_DateTime"] == t]["Dim2"]), 
-                            len(dfAttrId[dfAttrId["_DateTime"] == t]),
-                            a,
-                            t
-                            ])
-
-                hover_data = ["Count", attribute, "_DateTime"]
-                dfTrack = pd.DataFrame(data, columns = ["Dim0", "Dim1", "Dim2"] + hover_data)
-                dfTrack = dfTrack.combine_first(pd.DataFrame(columns=df.columns))
-                uniqueIDs = dfTrack[attribute].unique()
-
-            # if the selected attribute is the unique identifier, provide all data (there will
-            # no combining of data)
-            else:
-                dfTrack = df
-
-            dfTrack = dfTrack.sort_values("_DateTime")
-            uidAttr = attribute
-            # ----------- TESTING FOR ATTRIBUTES -----------=
-
-            for uid in uniqueIDs:
-                # get all the unique entries for this unique identity
-                uiddf = dfTrack[dfTrack[uidAttr] == uid]
-
-                selected_colours = [colourDict[attr][unix] for attr, unix in zip(uiddf[attribute], uiddf["_DateTime"])]
-                selected_sizes = [timeDict[t] for t in uiddf["_DateTime"]]
-                # set the colours so that the newest data pont is 100% opacity and the oldest data point is 40% opacity
-                name = [u for u in uiddf[attribute] if u != "None"][0]
-
-                # doco: https://plotly.github.io/plotly.py-docs/generated/plotly.graph_objects.Scatter3d.html
-                fig.add_trace(
-                        go.Scatter3d(
-                            x=uiddf["Dim0"],
-                            y=uiddf["Dim1"],
-                            z=uiddf["Dim2"],
-                            customdata=uiddf[hover_data],
-                            hovertext = 
-                            ['<br>'.join([f"{h}: {uiddf[h].iloc[n]}" for h in hover_data]) for n in range(len(uiddf))],
-                            marker=dict(color=selected_colours, size=selected_sizes),
-                            line = dict(color=selected_colours),
-                            name = name,            # NOTE this must be a string/number
-                            # legendgroup = name,     # NOTE this must be a string/number
-                            # connectgaps=True        # NOTE for some reason this isn't acutally connecting gaps.... maybe wrong data type for empty? 
-                        )
+            # doco: https://plotly.github.io/plotly.py-docs/generated/plotly.graph_objects.Scatter3d.html
+            fig.add_trace(
+                    go.Scatter3d(
+                        x=uiddf["Dim0"],
+                        y=uiddf["Dim1"],
+                        z=uiddf["Dim2"],
+                        customdata=uiddf[hover_data],
+                        hovertext = 
+                        ['<br>'.join([f"{h}: {uiddf[h].iloc[n]}" for h in hover_data]) for n in range(len(uiddf))],
+                        marker=dict(color=selected_colours, size=selected_sizes),
+                        line = dict(color=selected_colours),
+                        name = name,            # NOTE this must be a string/number
+                        # legendgroup = name,     # NOTE this must be a string/number
+                        # connectgaps=True        # NOTE for some reason this isn't acutally connecting gaps.... maybe wrong data type for empty? 
                     )
-
-            plotTitle = f"Tracking {len(uniqueIDs)} identities grouped by {attribute} from {allTimes[0]} to {allTimes[-1]}"
-
-            # remove duplicate legend entries
-            # NOTE this may be useful to update the plots rather than re-generating them?
-            # https://plotly.com/python-api-reference/generated/plotly.graph_objects.Figure.html#plotly.graph_objects.Figure.for_each_trace
-            names = set()
-            fig.for_each_trace(
-                lambda trace:
-                    trace.update(showlegend=False) if (trace.name in names) else names.add(trace.name)
-                    )
-
-            # for missing datapoints, connect traces
-            fig.update_traces(connectgaps=True)
-
-            # see legend doco: https://plotly.com/python/reference/layout/#layout-legend 
-            fig.update_layout(
-                legend=dict(
-                    traceorder= "normal",
                 )
-            )
 
+        plotTitle = f"Tracking {len(uniqueIDs)} identities grouped by {attribute} from {allTimes[0]} to {allTimes[-1]}"
+
+        # remove duplicate legend entries
+        # NOTE this may be useful to update the plots rather than re-generating them?
+        # https://plotly.com/python-api-reference/generated/plotly.graph_objects.Figure.html#plotly.graph_objects.Figure.for_each_trace
+        names = set()
+        fig.for_each_trace(
+            lambda trace:
+                trace.update(showlegend=False) if (trace.name in names) else names.add(trace.name)
+                )
+
+        # for missing datapoints, connect traces
+        fig.update_traces(connectgaps=True)
+
+        # see legend doco: https://plotly.com/python/reference/layout/#layout-legend 
+        fig.update_layout(
+            legend=dict(
+                traceorder= "normal",
+            )
+        )
+
+    #  ---------- Cluster data around reduced spatial resolution ----------
+    elif sliderRoundValue > 0:
         # plot the current time specified data but scale the dots to represent the relative number of identities
         # at that position
-        elif sliderRoundValue > 0:
 
-            print(f"     Plotting data with 3D plotting for {attribute} and relative number of identities")
+        print(f"     Plotting data with 3D plotting for {attribute} and relative number of identities")
 
-            dfMod = df[df["_DateTime"] == df["_DateTime"].unique()[sliderDateValue]]
-            dfMod[["Dim0r", "Dim1r", "Dim2r"]] = dfMod[["Dim0", "Dim1", "Dim2"]].apply(lambda x: sliderRoundValue * np.round(x/sliderRoundValue))
-            dfPos = dfMod.groupby(["Dim0r", "Dim1r", "Dim2r", attribute])[["Dim0", "Dim1", "Dim2"]].agg('median').reset_index()
-            dfCount = dfMod.groupby(["Dim0r", "Dim1r", "Dim2r", attribute])[[uidAttr]].count().reset_index()
-            dfPos["Count"] = dfCount[uidAttr]
-            dfPos = dfPos.sort_values(attribute)
+        dfMod = df[df["_DateTime"] == df["_DateTime"].unique()[sliderDateValue]].reset_index(drop=True)
+        dfMod[["Dim0r", "Dim1r", "Dim2r"]] = dfMod[["Dim0", "Dim1", "Dim2"]].apply(lambda x: np.round(sliderRoundValue * np.round(x/sliderRoundValue), 2))
+        dfMod["_Count"] = dfMod.groupby(["Dim0r", "Dim1r", "Dim2r", attribute])[[uidAttr]].transform('count')
+        dfUniqID = dfMod[dfMod["_Count"] == 1]
 
-            hover_data = ["Count", attribute]
+        # Create the aggregation dictionary
+        aggDict = {
+        "Dim0": "median",
+        "Dim1": "median", 
+        "Dim2": "median",
+        "_Count": "median",
+        }
+        # for all identity attributes, if they are all the same for all aggregated identities report it otherwise set as "Mixed". 
+        # Exclude the programmed defined attribute (marked by _ at the start)
+        aggDict.update({hd: lambda x: list(set(x))[0] if len(set([str(n) for n in x]))==1 else "Mixed" for hd in hover_data if hd != attribute})
 
-            fig = px.scatter_3d(dfPos,
-                    x=dfPos["Dim0"], 
-                    y=dfPos["Dim1"], 
-                    z=dfPos["Dim2"],
-                    hover_data = [attribute],
-                    color = attribute, 
-                    title = plotTitle, 
-                    hover_name = attribute,
-                    size = dfPos['Count'], 
-                    size_max=40,
-                    opacity=1
-                    )
-            
-            plotTitle = f"Plotting and overlaying {len(dfMod)} identities for {len(dfPos)} unique positions colored based on {attribute} with a spatial resolution of {sliderRoundValue} from {allTimes[sliderDateValue]}"
-                            
-        # plot only the current data
-        else:
-            print(f"     Plotting data with 3D plotting for {attribute}")
+        dfCluster = dfMod[dfMod["_Count"] > 1].groupby(["Dim0r", "Dim1r", "Dim2r", attribute]).agg(aggDict).reset_index()
+        dfPos = pd.concat([dfUniqID, dfCluster])
+        dfPos = dfPos.sort_values(attribute)
+        
+        # hover_data.append("_Count")
+        hover_data = sorted(hover_data)
 
-            dfTime = df[df["_DateTime"] == df["_DateTime"].unique()[sliderDateValue]]
-            dfTime = dfTime.sort_values(attribute)
+        fig = px.scatter_3d(dfPos,
+                x=dfPos["Dim0"], 
+                y=dfPos["Dim1"], 
+                z=dfPos["Dim2"],
+                hover_data = hover_data,
+                color = attribute, 
+                title = plotTitle, 
+                hover_name = attribute,
+                size = dfPos['_Count'], 
+                size_max=40,
+                opacity=1
+                )
 
-            fig = px.scatter_3d(dfTime, 
-                    x="Dim0", 
-                    y="Dim1", 
-                    z="Dim2",
-                    hover_data = hover_data,
-                    color = attribute, 
-                    title = plotTitle, 
-                    hover_name= uidAttr,  
-                    )
+        plotTitle = f"Plotting and overlaying {len(dfMod)} identities for {len(dfPos)} unique positions colored based on {attribute} with a spatial resolution of {sliderRoundValue} from {allTimes[sliderDateValue]}"
+                        
+    # ---------- Plot the raw identity data ----------
+    else:
+        print(f"     Plotting data with 3D plotting for {attribute}")
 
-            plotTitle = f"Plotting {len(dfTime)} identities colored based on {attribute} with full identity information from {allTimes[sliderDateValue]}"
+        dfTime = df[df["_DateTime"] == df["_DateTime"].unique()[sliderDateValue]]
+        dfTime = dfTime.sort_values(attribute)
 
-        # get the user selected slider values
-        xMin, xMax = sliderXScale
-        yMin, yMax = sliderYScale
-        zMin, zMax = sliderZScale
+        fig = px.scatter_3d(dfTime, 
+                x="Dim0", 
+                y="Dim1", 
+                z="Dim2",
+                hover_data = hover_data,
+                color = attribute, 
+                title = plotTitle, 
+                hover_name = uidAttr,  
+                )
 
-        fig.update_layout(
-            scene = {
-                'xaxis': dict(nticks = 7, range=[xMin, xMax]),
-                'yaxis': dict(nticks = 7, range=[yMin, yMax]),
-                'zaxis': dict(nticks = 7, range=[zMin, zMax]),
-                'aspectmode': 'cube'
-                }
-            )
+        plotTitle = f"Plotting {len(dfTime)} identities colored based on {attribute} with full identity information from {allTimes[sliderDateValue]}"
 
+    # ---------- Scale and format the plot ----------
 
-    # allow for multiple point selection
+    # get the user selected slider values
+    xMin, xMax = sliderXScale
+    yMin, yMax = sliderYScale
+    zMin, zMax = sliderZScale
+
     fig.update_layout(
-        title = "<br>".join(wrap(plotTitle, width = 100)),
-        clickmode='event+select',
+        title = "<br>".join(wrap(plotTitle, width = 70)),       # set the title
+        clickmode='event+select',                               # all for data to be collected by clicking
         width=800, 
         height=600, 
-        hovermode='closest'
+        hovermode='closest',
+        scene = {
+            'xaxis': dict(nticks = 7, range=[xMin, xMax]),
+            'yaxis': dict(nticks = 7, range=[yMin, yMax]),
+            'zaxis': dict(nticks = 7, range=[zMin, zMax]),
+            'aspectmode': 'cube'
+            },
     )
+
+    # remove information about the position in the plot because this is not useful
+    for f in fig.data:
+        if f.hovertemplate is not None:
+            f.hovertemplate = f.hovertemplate.replace("Dim0=%{x}<br>Dim1=%{y}<br>Dim2=%{z}<br>", "")
 
     print("     Plot updated\n")
     return fig
@@ -580,19 +576,23 @@ def save_plot(click, fig, info, selectedAttr):
 
 # report 1
 @app.callback(Output('report_1', 'n_clicks'),
+    Input('identityRepresentations', 'data'),
+    Input('rawPermissionData', 'data'),
+    Input('identityData', 'data'),
+    Input('uidAttr', 'data'),
     Input('report_1', 'n_clicks'),
-    Input('dataFrame', 'data'),
     Input('selectedDropDown', 'value'),
-    Input('uidAttr', 'data')
     )
-def report_1(click, dfjson, selectedAttr, uidAttr):
+def report_1(idRep, idData, permData, uid, click, selectedAttr):
 
     if click:
 
-        df = pd.read_json(dfjson, orient='split')
+        idRep = pd.read_json(idRep, orient='split')
+        idData = pd.read_json(idData, orient='split')
+        permData = pd.read_json(permData, orient='split')
         attribute = selectedAttr.split(":")[0]
 
-        reporting.report_1(df, attribute, uidAttr)
+        reporting.report_1(idRep, idData, permData, attribute, uid)
 
     return 0
 
