@@ -213,7 +213,7 @@ class CSVData(DataModel):
 
     '''
 
-    def getData(self, reclaculate: bool, identityPath: str, permissionPath: str, privilegedPath: str, identityKey: str, permissionKey : str, permissionValue: str, limitData = None):
+    def getData(self, identityPath: str, permissionPath: str, privilegedPath: str, identityKey: str, permissionKey : str, permissionValue: str, limitData = None):
 
         '''
         Ingest the raw information and process for the dataModel
@@ -258,11 +258,9 @@ class CSVData(DataModel):
         self.joinKeys["permission"] = permissionKey
         self.permissionValue = permissionValue
 
-        if reclaculate:
-
-            self.getIdentityData()
-            self.getPermissionData(limitData)
-            self.getprivilegedData()
+        self.getIdentityData()
+        self.getPermissionData(limitData)
+        self.getprivilegedData()
 
     def getIdentityData(self):
 
@@ -301,33 +299,26 @@ class CSVData(DataModel):
         idSelect = list(self.identityData[self.joinKeys['identity']].unique())
         dataPaths = sorted(glob(self.permissionPath), reverse=False)     # get up to the 5 most recent files
         if limit is not None:
-            dataPaths = dataPaths[:limit]
+            dataPaths = dataPaths[-limit:]
 
         # read in multiple files and combine. This assumes that multiple files with the same 
         # key name are temporal versions of the information
-        if len(dataPaths) > 1:
-            pivotSelect = f"{self.joinKeys['permission']}_DateTime"
-            for path in dataPaths:
-                date = path.split("_")[-1].split(".")[0]                    # get the information from the file name
-                pStore = pd.read_csv(path, dtype = str).dropna(how = 'all')
-                
-                # this is joining the identity and permission data as only the identities in the
-                # identityData are INCLUDED in the permission data. 
-                # If the identity is present for any time extract in the identity data then it
-                # will be included from all permission data
-                pStore = pStore[pStore[self.joinKeys['permission']].isin(idSelect)]
-                pStore[pivotSelect] = pStore[self.joinKeys['permission']] + f"_{date}"      # this is only needed for the pivot table
-                # pStore["_DateTime"] = f"_{date}"
-                if pAll is None:
-                    pAll = pStore
-                else:
-                    pAll = pd.concat([pAll, pStore])
-
-        # if there is only one dated file, just process as is
-        else:
-            pivotSelect = self.joinKeys['permission']
-            pStore = pd.read_csv(dataPaths[0], dtype = str).dropna(how = 'all')
-            pAll = pStore[pStore[self.joinKeys['permission']].isin(idSelect)]
+        pivotSelect = f"{self.joinKeys['permission']}_DateTime"
+        for path in dataPaths:
+            date = path.split("_")[-1].split(".")[0]                    # get the information from the file name
+            pStore = pd.read_csv(path, dtype = str).dropna(how = 'all')
+            
+            # this is joining the identity and permission data as only the identities in the
+            # identityData are INCLUDED in the permission data. 
+            # If the identity is present for any time extract in the identity data then it
+            # will be included from all permission data
+            pStore = pStore[pStore[self.joinKeys['permission']].isin(idSelect)]
+            pStore[pivotSelect] = pStore[self.joinKeys['permission']] + f"_{date}"      # this is only needed for the pivot table
+            # pStore["_DateTime"] = f"_{date}"
+            if pAll is None:
+                pAll = pStore
+            else:
+                pAll = pd.concat([pAll, pStore])
 
         # perform a pivot of the raw csv data to create a sparse matrix of occurence
         headers = list(pAll.columns.unique())
@@ -388,17 +379,24 @@ def excelData(excelFile: str, sheetName: str, dims: int, identityID: str, permis
 def csvData():
     
     identityPath = "data\\IdentitiesFakeSmall.csv"
-    identityPath = "data\\IdentitiesFake.csv"
-    identityPath = "data\\IdentityPermissionCreepTest\\IdentitiesFake_*.csv"
+    identityPath = "data\\RBACImplementationTest\\IdentitiesFake_*.csv"
+    identityPath = "data\\IdentitiesFakeAll_*.csv"
 
     permissionPath = "data\\EntitlementsFakeSmall*.csv"
-    permissionPath = "data\\IdentityPermissionCreepTest\\EntitlementsFake50_*.csv"
+    permissionPath = "data\\RBACImplementationTest\\EntitlementsFake50_*.csv"
+    permissionPath = "data\\EntitlementsFakeAll_*.csv"
+
+    identityPath = "data\\IdentityPermissionCreepTest\\IdentitiesFake_*.csv"
+    permissionPath = "data\\IdentityPermissionCreepTest\\Full\\EntitlementsFake_*.csv"
+    permissionPath = "data\\IdentityPermissionCreepTest\\Small\\EntitlementsFake50_*.csv"
+
     privilegedPath = "data\\PrivliegedData.csv"
+    privilegedPath = None
     
     
     csvData = CSVData()
-    recalculate = True
-    csvData.getData(recalculate, identityPath, permissionPath, privilegedPath, "Username", "Identity", "Value")
+    recalculate = False
+    csvData.getData(identityPath, permissionPath, privilegedPath, "Username", "Identity", "Value", limitData = 4)
     csvData.processData(recalculate)
     csvData.plotMDS()
 
