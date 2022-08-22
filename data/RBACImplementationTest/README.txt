@@ -14,7 +14,8 @@ User0000	Mover (up)	Promoted to manager, will gain the manager access all at onc
 User0001	Mover (up)	Promoted to manager, will gain the manager access all at once
 User0002	Mover (up)	Promoted to manager, will gain the manager access incrementally
 User0006	Mover (up)	Promoted to manager, will gain the manager access incrementally (in a different order)
-User0007	Joiner (priv)	Will be a new joiner, starting as a manager (access all at once)
+User0007	Joiner 		Will be a new joiner, starting as a normal employee
+User0008	Joiner (priv)	Will be a new joiner, starting as a manager (access all at once)
 User0009	Joiner		Will be a new joiner starting in their allocated department (access gradually)
 User0016	Mover		Will change to department 0 and immediately lose all their access and gain the that of the department (the 50 most common accesses of dept 0)
 User0017	Mover		Will gradually gain some of the dept0 specific permissions and lose their dept1 permissions
