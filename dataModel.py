@@ -6,6 +6,7 @@ from datetime import datetime
 import os
 from dashboard import launchApp
 from utilities import *
+from hashlib import sha256  
 
 # NOTE this has been set to turn off unnecessary warnings regarding a df modification in the 
 # plotMDS function
@@ -126,26 +127,28 @@ class DataModel(object):
             print("     Impossible dimensions inputted")
             return
 
+        # Use the hashed value of all path info to find the specific info if it exists
+        # NOTE just using the last 8 values rather than the whole thing
+        fullPath = str(self.identityPath) + str(self.permissionPath) + str(self.privilegedPath)
+        self.hashValue = sha256(fullPath.encode()).hexdigest()[-8:]
+
         # attribute data requires the category information as well
         if "Attr" in self.processingType: 
             joinedCategoryHeaders =  '_'.join(sorted(self.categoriesHeader))
             csvName = f"{self.processingType}{dims}D_{joinedCategoryHeaders}"
         # identity data requires the processing type and dimensionality 
         else:
-            csvName = f"{self.processingType}{dims}D"
+            csvName = f"{self.processingType}{dims}D_{self.hashValue}"
 
         # find any relevant files
         csvFiles = sorted(glob(f"{self.dir['results']}{csvName}*.csv"))
-        
-        # evaluation if we need to recalculate or if a file can just be loaded
-        if not recalculate:
-            recalculate = len(csvFiles) == 0
 
-        # if either forced to recalculate or no relevant files found, recalculate the MDS, else load the relevant file
-        if recalculate:
+        # if either forced to recalculate or no relevant files found, recalculate the MDS, 
+        # else load the most recently created relevant file
+        if recalculate or len(csvFiles) == 0:
 
             print("     Recalculation beginning")
-            self.calculateMDS(dims)
+            self.calculateMDS()
             dttime = int(datetime.utcnow().timestamp())
             self.mdsResults.to_csv(f"{self.dir['results']}{csvName}_{dttime}.csv")
         
@@ -154,7 +157,7 @@ class DataModel(object):
             print(f"     Using {csvPath} to load pre-calculated results")
             self.mdsResults = pd.read_csv(csvPath)
 
-    def calculateMDS(self, dims):
+    def calculateMDS(self):
 
         print("     Calculating similarity matrix")
         # the rawPermissionData MUST be a pandas dataframe with the columns being the permissions
@@ -186,10 +189,11 @@ class DataModel(object):
                 identityExtract["_DateTime"] = identityExtract["_DateTime"].astype(int)
                 entitleExtract = entitleExtract.sort_values("_DateTime")
                 identityExtract = identityExtract.sort_values("_DateTime")
+                identityExtract["_IdentityDateTime"] = identityExtract["_DateTime"].apply(lambda x: datetime.fromtimestamp(int(x)).strftime("%m/%d/%Y, %H:%M:%S"))
                 # match for identity extracts with the closest in time to the entitlement extract
                 # NOTE a tolerance of a week, tolerance = 604800
                 posdf = pd.merge_asof(entitleExtract, identityExtract, on = "_DateTime", left_by=self.joinKeys["permission"], right_by=self.joinKeys['identity'], direction="nearest")
-
+                posdf = posdf.drop(self.joinKeys["permission"])     # Keep just the uid from the identity dataframe
             else:
             
                 posdf = pd.merge(entitleExtract, identityExtract, left_on=self.joinKeys['permission'])
