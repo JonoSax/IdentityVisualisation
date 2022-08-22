@@ -34,11 +34,40 @@ def mdsCalculation(permissionData: pd.DataFrame, privilegedData = None, dims = 3
     '''
 
     # apply the impact of privileged permissions
+    # NOTE applying privileged permissions significantly increases the computational cost of the similarityPermissionData
+    # calculation
     if privilegedData is not None:
         permissionData[privilegedData["Permission"]] *= np.array(privilegedData["RelativePrivilege"].astype(int))
     
     # compute the relative similarity of each data point
-    x = permissionData.to_numpy().astype(int)
+    '''
+    Use float32 as once again it balances performance and accuracy. 
+    NOTE that for very large arrays (1000x1000+), using int or float16 often don't complete in a
+    reasonable time. 
+    See https://discourse.julialang.org/t/massive-performance-penalty-for-float16-compared-to-float32/6864/12 
+    for a reasonably sensible explanation. 
+
+    For a 500x500 array calcuation of np.dot(n, n.T)/np.sum(n, 1)
+    int8 = 0.07399086952209473 sec average for 10 iterations
+    int16 = 0.07402501106262208
+    int32 = 0.0616971492767334
+    int64 = 0.0726935863494873
+    f16 = 1.084699773788452
+    f32 = 0.0034945011138916016
+    f64 = 0.0037222862243652343
+
+
+    For a 5000x5000 array calculation:
+    int8 = ~75 seconds (didn't continue, took too long)
+    int16 - 64, based on the int8 time didn't attempt
+    f16 = didn't complete a single iteration within 5 minutes
+    f32 = 0.5625820875167846
+    f64 = 1.3568515539169312
+
+    Summary: f32 is a 20-300+x speed up on other data types and for larger multiplications, 
+    is faster than f64. Given the negligible accuracy change f32 is used.
+    '''
+    x = permissionData.to_numpy().astype(np.float32)
     similarityPermissionData = np.dot(x, x.T)/np.sum(x, 1)
 
     dissimilarity = 1 - similarityPermissionData * similarityPermissionData.transpose()
@@ -48,11 +77,11 @@ def mdsCalculation(permissionData: pd.DataFrame, privilegedData = None, dims = 3
 
     mds = manifold.MDS( 
         n_components=dims, 
-        # max_iter=1,
+        max_iter=1000,
         eps=1e-9,
         random_state=np.random.RandomState(seed=3),
         dissimilarity="precomputed",
-        n_jobs=1, 
+        n_jobs=4, 
         verbose=2, 
         metric = True
     )
@@ -62,7 +91,17 @@ def mdsCalculation(permissionData: pd.DataFrame, privilegedData = None, dims = 3
         n_components = 3,
     )
 
-    pos = mds.fit(dissimilarity).embedding_
+    '''
+    Enforce the dissimilarities to float32 as a compromise of accuracy and speed
+    For a 350 x 350 matrix:
+    d64 = 7.942158341407776 sec per iteration
+    d32  = 5.387955260276795 sec
+    d16 = 6.188236093521118 sec
+    '''
+    # results = mds.fit(dissimilarity.astype(np.float32), )
+    # pos = results.embedding_
+    # NOTE memory issue on windows for large array size: https://stackoverflow.com/questions/57507832/unable-to-allocate-array-with-shape-and-data-type
+    pos = mds.fit_transform(dissimilarity)
     # pos = isomap.fit(dissimilarity).embedding_
 
     return(pos)
