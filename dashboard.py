@@ -12,6 +12,7 @@ from plotly.colors import hex_to_rgb
 import numpy as np
 from textwrap import wrap
 import reporting
+from utilities import clusterData
 
 pd.options.mode.chained_assignment = None
 
@@ -31,9 +32,9 @@ app = Dash(__name__, external_stylesheets=external_stylesheets)
 def launchApp(dataModel : object, name = ""):
     
     appObj = createInteractivePlot(dataModel)
-    webbrowser.open("http://127.0.0.1:8050/", new = 0, autoraise = True)
+    # webbrowser.open("http://127.0.0.1:8050/", new = 0, autoraise = True)
     try:
-        appObj.run_server(debug = False)
+        appObj.run_server(debug = True)
     except Exception as e:
         print(e)
         launchApp(appObj)
@@ -49,12 +50,12 @@ def createInteractivePlot(dataModel : object):
     print("---Creating web server for plotting---")
     df = dataModel.mdsResults
 
-
-    # attrList = [l for l in sorted(formatColumns) if not (l.lower().startswith("dim") or l.lower().startswith("unnamed"))]
+    # Specify what data from the dataframe is to be selected and shared with the webbrowser
     selectedData = [d for d in sorted(list(df.columns)) if (d.lower().find("unnamed") == -1)]
+
+    # Specify what data from the dataframe will be included in the hovertext
     hover_data = [s for s in selectedData if s.lower().find("dim") == -1]
     # hover_data.remove("timeUnix")
-    attrList = hover_data.copy()
 
     r = 0.2         # The extra bit to add to the graphs for scaling
     xMinR = df["Dim0"].min()-r
@@ -65,23 +66,23 @@ def createInteractivePlot(dataModel : object):
     zMaxR = df["Dim2"].max()+r        
 
     marks = {}
-    if "_DateTime" in attrList:
-        attrList.remove("_DateTime")
+    if "_DateTime" in hover_data:
+        hover_data.remove("_DateTime")
+        selectedData.append("_PermissionDateTime")
+        hover_data.append("_PermissionDateTime")
         df = df.sort_values(["_DateTime", dataModel.joinKeys["identity"]], ascending = True)
 
         # convert the datetime object into a human readable time
-        df["_DateTime"] = df["_DateTime"].apply(lambda x: datetime.fromtimestamp(int(x)).strftime("%m/%d/%Y, %H:%M:%S"))
-
+        df["_PermissionDateTime"] = df["_DateTime"].apply(lambda x: datetime.fromtimestamp(int(x)).strftime("%m/%d/%Y, %H:%M:%S"))
 
         # create the marks for the slider
-        dttimes = df["_DateTime"].unique()
-        # dtlabel = df["_DateTimeFormat"].unique()
+        dttimes = df["_PermissionDateTime"].unique()
 
         marks = {n: {'label': d} for n, d in enumerate(dttimes)}
         # marks = {dn: {'label': dt} for dn, dt in zip(dttimes, dtlabel)}
 
 
-    attrArray = np.array([[r, len(df[r].unique())] for r in attrList])
+    attrArray = np.array([[r, len(df[r].unique())] for r in hover_data])
     dropDownStart = ": ".join(attrArray[attrArray[:, 1].astype(int).argsort()][0])
     dropDownOpt = [": ".join(a) for a in attrArray]
 
@@ -225,7 +226,7 @@ def createInteractivePlot(dataModel : object):
             html.Div([
                 daq.ToggleSwitch(
                     id='toggle-in',
-                    disabled = not "_DateTime" in hover_data,
+                    disabled = not "_PermissionDateTime" in hover_data,
                     value=False, 
                 ), 
                 html.Div(id='toggle-out'),
@@ -237,7 +238,7 @@ def createInteractivePlot(dataModel : object):
                 dcc.Slider(0, len(dttimes)-1, 1,
                         value=len(dttimes)-1,
                         id='slider-dates',
-                        disabled = not "_DateTime" in hover_data,
+                        disabled = not "_PermissionDateTime" in hover_data,
                         marks = marks
                 ),
                 # html.Div(id='slider-output'),
@@ -307,7 +308,6 @@ def createInteractivePlot(dataModel : object):
         dcc.Store(data = df[selectedData].to_json(orient='split'), id = "identityRepresentations"),
         dcc.Store(data = dataModel.rawPermissionData.to_json(orient='split'), id = "rawPermissionData"),
         dcc.Store(data = dataModel.identityData.to_json(orient='split'), id = "identityData"),
-        dcc.Store(data = attrList, id = "attrList"),
         dcc.Store(data = dataModel.joinKeys["identity"], id = "uidAttr"),
         dcc.Store(data = os.getpid(), id = "pid"),
         dcc.Store(data = hover_data, id = "hover_data"),
@@ -378,20 +378,21 @@ def update_graph(dfjson, attribute, uidAttr, hover_data, trackingToggle, sliderD
         if attribute != uidAttr:
             allAttrs = df[attribute].unique()
             data = []
-            for a in allAttrs:
-                dfAttrId = df[df[attribute] == a]
-                for t in allTimes:
+            for attr in allAttrs:
+                dfAttrId = df[df[attribute] == attr]
+                for dt in allTimes:
                     data.append([
-                        np.median(dfAttrId[dfAttrId["_DateTime"] == t]["Dim0"]), 
-                        np.median(dfAttrId[dfAttrId["_DateTime"] == t]["Dim1"]), 
-                        np.median(dfAttrId[dfAttrId["_DateTime"] == t]["Dim2"]), 
-                        len(dfAttrId[dfAttrId["_DateTime"] == t]),
-                        a,
-                        t
+                        np.median(dfAttrId[dfAttrId["_DateTime"] == dt]["Dim0"]), 
+                        np.median(dfAttrId[dfAttrId["_DateTime"] == dt]["Dim1"]), 
+                        np.median(dfAttrId[dfAttrId["_DateTime"] == dt]["Dim2"]), 
+                        dt,
+                        len(dfAttrId[dfAttrId["_DateTime"] == dt]),
+                        attr,
+                        datetime.fromtimestamp(int(dt)).strftime("%m/%d/%Y, %H:%M:%S")
                         ])
 
-            hover_data = ["Count", attribute, "_DateTime"]
-            dfTrack = pd.DataFrame(data, columns = ["Dim0", "Dim1", "Dim2"] + hover_data)
+            hover_data = ["Count", attribute, "_PermissionDateTime"]
+            dfTrack = pd.DataFrame(data, columns = ["Dim0", "Dim1", "Dim2", "_DateTime"] + hover_data)
             dfTrack = dfTrack.combine_first(pd.DataFrame(columns=df.columns))
             uniqueIDs = dfTrack[attribute].unique()
 
@@ -419,8 +420,9 @@ def update_graph(dfjson, attribute, uidAttr, hover_data, trackingToggle, sliderD
                         y=uiddf["Dim1"],
                         z=uiddf["Dim2"],
                         customdata=uiddf[hover_data],
-                        hovertext = 
-                        ['<br>'.join([f"{h}: {uiddf[h].iloc[n]}" for h in hover_data]) for n in range(len(uiddf))],
+                        hovertemplate = "<br>".join([f"{h}: %{'{customdata['+str(n)+']}'}" for n, h in enumerate(hover_data)]),
+                        # hovertext = 
+                        # ['<br>'.join([f"{h}: {uiddf[h].iloc[n]}" for h in hover_data]) for n in range(len(uiddf))],
                         marker=dict(color=selected_colours, size=selected_sizes),
                         line = dict(color=selected_colours),
                         name = name,            # NOTE this must be a string/number
@@ -452,30 +454,32 @@ def update_graph(dfjson, attribute, uidAttr, hover_data, trackingToggle, sliderD
 
     #  ---------- Cluster data around reduced spatial resolution ----------
     elif sliderRoundValue > 0:
-        # plot the current time specified data but scale the dots to represent the relative number of identities
-        # at that position
+        
+        '''
+        plot the current time specified data but scale the dots to represent the relative number of identities
+        at that position.
+
+        NOTE this is just using an average position and clustering based on the spatial resolution instead of
+        grouping identities based on their distance from each other for two reason:
+            1 - This is much simpler
+            2 - It conceptually makes sense to group information that is nearby to a certain point. The
+                actual point is irrelevant because, like the actual distances between points, they are
+                an arbituary representation of the relationships of each identity. 
+                Yes it would be more accurate to centre the clustering in areas where there is higher identity
+                density rather tan along grid lines. However this is significantly more complicated for 
+                very little tangible improvement in the ideas you can extract from the data.
+        '''
 
         print(f"     Plotting data with 3D plotting for {attribute} and relative number of identities")
 
+        # process only data for this time period
         dfMod = df[df["_DateTime"] == df["_DateTime"].unique()[sliderDateValue]].reset_index(drop=True)
-        dfMod[["Dim0r", "Dim1r", "Dim2r"]] = dfMod[["Dim0", "Dim1", "Dim2"]].apply(lambda x: np.round(sliderRoundValue * np.round(x/sliderRoundValue), 2))
-        dfMod["_Count"] = dfMod.groupby(["Dim0r", "Dim1r", "Dim2r", attribute])[[uidAttr]].transform('count')
-        dfUniqID = dfMod[dfMod["_Count"] == 1]
-
-        # Create the aggregation dictionary
-        aggDict = {
-        "Dim0": "median",
-        "Dim1": "median", 
-        "Dim2": "median",
-        "_Count": "median",
-        }
+        
         # for all identity attributes, if they are all the same for all aggregated identities report it otherwise set as "Mixed". 
-        # Exclude the programmed defined attribute (marked by _ at the start)
-        aggDict.update({hd: lambda x: list(set(x))[0] if len(set([str(n) for n in x]))==1 else "Mixed" for hd in hover_data if hd != attribute})
-
-        dfCluster = dfMod[dfMod["_Count"] > 1].groupby(["Dim0r", "Dim1r", "Dim2r", attribute]).agg(aggDict).reset_index()
-        dfPos = pd.concat([dfUniqID, dfCluster])
-        dfPos = dfPos.sort_values(attribute)
+        aggDict = {hd: lambda x: list(set(x))[0] if len(set([str(n) for n in x]))==1 else "Mixed" for hd in hover_data if hd != attribute}
+        
+        # get the clustered data
+        dfPos = clusterData(dfMod, uidAttr, attribute, sliderRoundValue, aggDict)
         
         # hover_data.append("_Count")
         hover_data = sorted(hover_data)
@@ -555,16 +559,6 @@ def save_plot(click, fig, info, selectedAttr):
 
         print("----- Saving plot -----")
 
-        '''
-        # create the specific names for saving the plots
-        if "Attribute" in info: 
-            # for attribute analysis, the combination is important. Highligh the specific
-            # attribute with ##
-            selectedAttr = [a.replace(attribute, f"#{attribute}#") for a in sorted(attrList)]
-        else:
-            selectedAttr = attribute
-        '''
-
         dims = sum([l.find("axis")>0 for l in list(fig["layout"]["scene"])])
         selectedAttr = selectedAttr.split(":")[0]
         plotName = f'{os.path.expanduser("~")}\\Downloads\\{info}_{dims}D_{selectedAttr}_{datetime.now().strftime("%y%m%d%H%M%S")}.html'
@@ -576,23 +570,47 @@ def save_plot(click, fig, info, selectedAttr):
 
 # report 1
 @app.callback(Output('report_1', 'n_clicks'),
+    Input('report_1', 'n_clicks'),
     Input('identityRepresentations', 'data'),
     Input('rawPermissionData', 'data'),
     Input('identityData', 'data'),
     Input('uidAttr', 'data'),
-    Input('report_1', 'n_clicks'),
     Input('selectedDropDown', 'value'),
     )
-def report_1(idRep, idData, permData, uid, click, selectedAttr):
+def report_1(click, idRep, idData, permData, uid, selectedAttr):
 
     if click:
 
         idRep = pd.read_json(idRep, orient='split')
         idData = pd.read_json(idData, orient='split')
         permData = pd.read_json(permData, orient='split')
-        attribute = selectedAttr.split(":")[0]
+        selectedAttr = selectedAttr.split(":")[0]
 
-        reporting.report_1(idRep, idData, permData, attribute, uid)
+        reporting.report_1(idRep, idData, permData, uid, selectedAttr)
+
+    return 0
+
+# report 2
+@app.callback(Output('report_2', 'n_clicks'),
+    Input('report_2', 'n_clicks'),
+    Input('identityRepresentations', 'data'),
+    Input('rawPermissionData', 'data'),
+    Input('identityData', 'data'),
+    Input('uidAttr', 'data'),
+    Input('selectedDropDown', 'value'),
+    Input('slider-rounding', 'value'),
+    Input('slider-dates', 'value'), 
+    )
+def report_2(click, idRep, idData, permData, uid, selectedAttr, sliderRound, sliderDate):
+
+    if click:
+
+        idRep = pd.read_json(idRep, orient='split')
+        idData = pd.read_json(idData, orient='split')
+        permData = pd.read_json(permData, orient='split')
+        selectedAttr = selectedAttr.split(":")[0]
+
+        reporting.report_2(idRep, idData, permData, uid, selectedAttr, sliderRound, sliderDate)
 
     return 0
 
