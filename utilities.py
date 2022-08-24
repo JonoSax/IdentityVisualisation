@@ -105,3 +105,47 @@ def mdsCalculation(permissionData: pd.DataFrame, privilegedData = None, dims = 3
     # pos = isomap.fit(dissimilarity).embedding_
 
     return(pos)
+
+def clusterData(df, uidAttr, attribute, sliderRoundValue, dictRules = None):
+
+    '''
+    Cluster the data based on all identities position environment and an atribue
+
+    Input
+    ------
+    df : pd.DataFrame
+        Dataframe of interest which contains information
+
+    uidAttr : str
+        Unique identifier of the identities
+
+    attribute : str
+        Attribute of interest to investigate. Must be in the columns of the dataframe
+
+    sliderRoundValue : float
+        The spatial resolution to round to
+
+    dictRules : dict
+        Dictionary of rules corresponding to the columns in the df to process the final aggregated dataframe
+    '''
+
+    dfMod = df.copy()
+    dfMod[["Dim0r", "Dim1r", "Dim2r"]] = dfMod[["Dim0", "Dim1", "Dim2"]].apply(lambda x: np.round(sliderRoundValue * np.round(x/sliderRoundValue), 2))
+    dfMod["_Count"] = dfMod.groupby(["Dim0r", "Dim1r", "Dim2r", attribute])[[uidAttr]].transform('count')
+    dfUniqID = dfMod[dfMod["_Count"] == 1]
+
+    # Create the aggregation dictionary
+    aggDict = {
+    "Dim0": "median",
+    "Dim1": "median", 
+    "Dim2": "median",
+    "_Count": "median",
+    }
+    if dictRules is not None:
+        aggDict.update(dictRules)
+
+    dfCluster = dfMod[dfMod["_Count"] > 1].groupby(["Dim0r", "Dim1r", "Dim2r", attribute]).agg(aggDict).reset_index()
+    dfPos = pd.concat([dfUniqID, dfCluster])
+    dfPos = dfPos.sort_values(attribute)
+
+    return(dfPos)
