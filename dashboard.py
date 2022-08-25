@@ -31,7 +31,7 @@ app = Dash(__name__, external_stylesheets=external_stylesheets)
 
 def launchApp(dataModel : object, name = ""):
     
-    appObj = createInteractivePlot(dataModel)
+    appObj = createInteractivePlot(dataModel)   
     # webbrowser.open("http://127.0.0.1:8050/", new = 0, autoraise = True)
     try:
         appObj.run_server(debug = True)
@@ -51,7 +51,9 @@ def createInteractivePlot(dataModel : object):
     df = dataModel.mdsResults
 
     # Specify what data from the dataframe is to be selected and shared with the webbrowser
-    selectedData = [d for d in sorted(list(df.columns)) if (d.lower().find("unnamed") == -1)]
+    selectedData = [d for d in sorted(list(df.columns)) 
+        if d.lower().find("unnamed") == -1 and              # removed the unnamed columns
+        d.find(dataModel.joinKeys["permission"]) == -1]     # remove the permission uid
 
     # Specify what data from the dataframe will be included in the hovertext
     hover_data = [s for s in selectedData if s.lower().find("dim") == -1]
@@ -76,10 +78,11 @@ def createInteractivePlot(dataModel : object):
         df["_PermissionDateTime"] = df["_DateTime"].apply(lambda x: datetime.fromtimestamp(int(x)).strftime("%m/%d/%Y, %H:%M:%S"))
 
         # create the marks for the slider
-        dttimes = df["_PermissionDateTime"].unique()
+        dtformat = df["_PermissionDateTime"].unique()
+        # dttimes = df["_DateTime"].unique()
 
-        marks = {n: {'label': d} for n, d in enumerate(dttimes)}
-        # marks = {dn: {'label': dt} for dn, dt in zip(dttimes, dtlabel)}
+        marks = {n: {'label': d} for n, d in enumerate(dtformat)}
+        # marks = {n: {'label': d} for n, d in zip(dttimes, dtformat)}
 
 
     attrArray = np.array([[r, len(df[r].unique())] for r in hover_data])
@@ -186,28 +189,59 @@ def createInteractivePlot(dataModel : object):
                 ], style={'display': 'inline-block'}
             ),
     
+            # report buttons
             html.Div([
                 # report1 button
                 html.Div([
-                    html.Button('Report 1', id='report_1', n_clicks=0),
+                    html.Button(
+                        'Report 1', 
+                        id='report_1', 
+                        n_clicks=0
+                        ),
                     ], style={"margin-left": "15px", "margin-top": "15px"}
                 ),
 
                 # report2 button
                 html.Div([
-                    html.Button('Report 2', id='report_2', n_clicks=0),
+                    html.Button(
+                        'Report 2', 
+                        id='report_2', 
+                        n_clicks=0,
+                        hidden = True
+                        ),
                     ], style={"margin-left": "15px", "margin-top": "15px"}
                 ),
 
+                # report2/clustering slider
+                html.Div([
+                    dcc.Slider(0, 1,
+                            value=0,
+                            id='slider-clustering',
+                            disabled = False,
+                            marks = None,
+                            vertical = False
+                    ),
+                    ], style={}
+                ),
+
+
                 # report3 button
                 html.Div([
-                    html.Button('Report 3', id='report_3', n_clicks=0),
+                    html.Button(
+                        'Report 3', 
+                        id='report_3', 
+                        n_clicks=0
+                        ),
                     ], style={"margin-left": "15px", "margin-top": "15px"}
                 ),
 
                 # report4 button
                 html.Div([
-                    html.Button('Report 4', id='report_4', n_clicks=0),
+                    html.Button(
+                        'Report 4', 
+                        id='report_4', 
+                        n_clicks=0
+                        ),
                     ], style={"margin-left": "15px", "margin-top": "15px"}
                 ),
 
@@ -235,8 +269,11 @@ def createInteractivePlot(dataModel : object):
             
             # slider for dates
             html.Div([
-                dcc.Slider(0, len(dttimes)-1, 1,
-                        value=len(dttimes)-1,
+                dcc.Slider(
+                        0, len(dtformat)-1, 1,
+                        value=len(dtformat)-1,
+                        # dttimes.min(), dttimes.max(),
+                        # value = dttimes.max(),
                         id='slider-dates',
                         disabled = not "_PermissionDateTime" in hover_data,
                         marks = marks
@@ -274,16 +311,6 @@ def createInteractivePlot(dataModel : object):
                 ], style={"margin-left": "15px", "margin-top": "15px", "display": "inline-block"}
             ),
         ]),
-
-
-        # Clear table button
-        # html.Div([
-        #     html.Button('Clear table', id='clear_table', n_clicks=0)
-        #     ], style={
-        #         "margin-left": "15px", 
-        #         "margin-top": "15px", 
-        #         "display": "inline-block",
-        #         }),
 
         # data table
         html.Div([
@@ -328,11 +355,12 @@ def createInteractivePlot(dataModel : object):
     Input('toggle-in', 'value'), 
     Input('slider-dates', 'value'), 
     Input('slider-rounding', 'value'),
+    Input('slider-clustering', 'value'),
     Input('slider-xAxis', 'value'),
     Input('slider-yAxis', 'value'),
     Input('slider-zAxis', 'value')
     )
-def update_graph(dfjson, attribute, uidAttr, hover_data, trackingToggle, sliderDateValue, sliderRoundValue, sliderXScale, sliderYScale, sliderZScale):
+def update_graph(dfjson, attribute, uidAttr, hover_data, trackingToggle, sliderDateValue, sliderRoundValue, sliderClusterValue, sliderXScale, sliderYScale, sliderZScale):
 
     '''
     Take in the raw data and selected information and create visualisation
@@ -340,11 +368,24 @@ def update_graph(dfjson, attribute, uidAttr, hover_data, trackingToggle, sliderD
 
     print("----- Updating plotting information -----")
 
+    print("Variables from the dash board")
+    print(f'''
+        attribute: {str(attribute)},
+        trackingToggle: {str(trackingToggle)},
+        sliderDateValue: {str(sliderDateValue)},
+        sliderRoundValue: {str(sliderRoundValue)},
+        sliderClusterValue: {str(sliderClusterValue)},
+        sliderXScale: {str(sliderXScale)},
+        sliderYScale: {str(sliderYScale)},
+        sliderZScale: {str(sliderZScale)},
+        ''')
+
     df = pd.read_json(dfjson, orient='split')
     df[hover_data] = df[hover_data].astype(str)
     dataColumns = list(df.columns)
     dims = sum(1 for x in list(dataColumns) if x.startswith ("Dim"))
     allTimes = df["_DateTime"].unique()
+    allTimesFormat = df["_PermissionDateTime"].unique()
 
     # remove the count info to match to the data frame
     attribute = attribute.split(":")[0]
@@ -431,7 +472,7 @@ def update_graph(dfjson, attribute, uidAttr, hover_data, trackingToggle, sliderD
                     )
                 )
 
-        plotTitle = f"Tracking {len(uniqueIDs)} identities grouped by {attribute} from {allTimes[0]} to {allTimes[-1]}"
+        plotTitle = f"Tracking {len(uniqueIDs)} identities grouped by {attribute} from {allTimesFormat[0]} to {allTimesFormat[-1]}"
 
         # remove duplicate legend entries
         # NOTE this may be useful to update the plots rather than re-generating them?
@@ -474,30 +515,35 @@ def update_graph(dfjson, attribute, uidAttr, hover_data, trackingToggle, sliderD
 
         # process only data for this time period
         dfMod = df[df["_DateTime"] == df["_DateTime"].unique()[sliderDateValue]].reset_index(drop=True)
-        
+
         # for all identity attributes, if they are all the same for all aggregated identities report it otherwise set as "Mixed". 
         aggDict = {hd: lambda x: list(set(x))[0] if len(set([str(n) for n in x]))==1 else "Mixed" for hd in hover_data if hd != attribute}
         
         # get the clustered data
+        # NOTE maybe create a unique ID number for each cluster so it can be referred to 
+        # in reports
         dfPos = clusterData(dfMod, uidAttr, attribute, sliderRoundValue, aggDict)
+
+        if sliderClusterValue > 0:
+            dfPos = dfPos[dfPos["_Count"] > sliderClusterValue * dfPos["_Count"].max()]
         
         # hover_data.append("_Count")
         hover_data = sorted(hover_data)
 
         fig = px.scatter_3d(dfPos,
-                x=dfPos["Dim0"], 
-                y=dfPos["Dim1"], 
-                z=dfPos["Dim2"],
+                x="Dim0", 
+                y="Dim1", 
+                z="Dim2",
                 hover_data = hover_data,
                 color = attribute, 
                 title = plotTitle, 
-                hover_name = attribute,
-                size = dfPos['_Count'], 
+                hover_name = "_ClusterID",
+                size = '_Count', 
                 size_max=40,
                 opacity=1
                 )
 
-        plotTitle = f"Plotting and overlaying {len(dfMod)} identities for {len(dfPos)} unique positions colored based on {attribute} with a spatial resolution of {sliderRoundValue} from {allTimes[sliderDateValue]}"
+        plotTitle = f"Plotting and overlaying {len(dfMod)} identities for {len(dfPos)} unique positions colored based on {attribute} with a spatial resolution of {sliderRoundValue} from {allTimesFormat[sliderDateValue]}"
                         
     # ---------- Plot the raw identity data ----------
     else:
@@ -516,7 +562,7 @@ def update_graph(dfjson, attribute, uidAttr, hover_data, trackingToggle, sliderD
                 hover_name = uidAttr,  
                 )
 
-        plotTitle = f"Plotting {len(dfTime)} identities colored based on {attribute} with full identity information from {allTimes[sliderDateValue]}"
+        plotTitle = f"Plotting {len(dfTime)} identities colored based on {attribute} with full identity information from {allTimesFormat[sliderDateValue]}"
 
     # ---------- Scale and format the plot ----------
 
@@ -561,7 +607,7 @@ def save_plot(click, fig, info, selectedAttr):
 
         dims = sum([l.find("axis")>0 for l in list(fig["layout"]["scene"])])
         selectedAttr = selectedAttr.split(":")[0]
-        plotName = f'{os.path.expanduser("~")}\\Downloads\\{info}_{dims}D_{selectedAttr}_{datetime.now().strftime("%y%m%d%H%M%S")}.html'
+        plotName = f'{os.path.expanduser("~")}\\Downloads\\{info}_{dims}D_{selectedAttr}_{datetime.now().strftime("%y%m%d.%H%M")}.html'
         go.Figure(fig).write_html(plotName)
         
         print(f"     Plot saved at {plotName}\n")
@@ -593,15 +639,18 @@ def report_1(click, idRep, idData, permData, uid, selectedAttr):
 # report 2
 @app.callback(Output('report_2', 'n_clicks'),
     Input('report_2', 'n_clicks'),
+    Input('plotly_figure', 'figure'),
     Input('identityRepresentations', 'data'),
     Input('rawPermissionData', 'data'),
     Input('identityData', 'data'),
     Input('uidAttr', 'data'),
     Input('selectedDropDown', 'value'),
     Input('slider-rounding', 'value'),
+    Input('slider-clustering', 'value'),
     Input('slider-dates', 'value'), 
+    Input('hover_data', 'data')
     )
-def report_2(click, idRep, idData, permData, uid, selectedAttr, sliderRound, sliderDate):
+def report_2(click, fig, idRep, idData, permData, uid, selectedAttr, sliderRound, sliderCluster, sliderDate, hover_data):
 
     if click:
 
@@ -610,7 +659,8 @@ def report_2(click, idRep, idData, permData, uid, selectedAttr, sliderRound, sli
         permData = pd.read_json(permData, orient='split')
         selectedAttr = selectedAttr.split(":")[0]
 
-        reporting.report_2(idRep, idData, permData, uid, selectedAttr, sliderRound, sliderDate)
+        reporting.report_2(idRep, idData, permData, uid, selectedAttr, sliderRound, sliderCluster, sliderDate, hover_data)
+        save_plot(True, fig, "Report2_Plot", selectedAttr)
 
     return 0
 
@@ -694,17 +744,63 @@ def save_file(click, tab_data, filename):
     print(f"----- Save file, {placeholder}, {output} -----\n")
     return placeholder, output, 0
 
+# enable/disable the toggle and sliders
 @app.callback(
     Output('toggle-out', 'children'),
     Output('slider-dates', 'disabled'),
     Output('slider-rounding', 'disabled'),
-    Input('toggle-in', 'value')
+    Output('slider-clustering', 'disabled'),
+    Input('toggle-in', 'value'),
+    Input('slider-rounding', 'value')
 )
-def update_output(value):
-    if value:
-        return "Tracking data", True, True
-    else:
-        return "Date of extract", False, False
+def update_output(toggleValue, sliderRoundValue):
+
+    # default values of all sliders/toggles
+    toggleOut = "Date of extract"
+    sliderDateDisabled = False
+    sliderRoundDisabled = False
+    sliderClusterDisabled = False
+
+    if toggleValue:
+        toggleOut = "Tracking data"
+        sliderDateDisabled = True
+        sliderRoundDisabled = True
+        sliderClusterDisabled = True
+    
+    if sliderRoundValue == 0:
+        sliderClusterDisabled = True
+
+    return toggleOut, sliderDateDisabled, sliderRoundDisabled, sliderClusterDisabled
+
+@app.callback(
+    Output('report_1', 'disabled'),
+    Output('report_2', 'children'),
+    Output('report_2', 'disabled'),
+    Output('report_3', 'disabled'),
+    Output('report_4', 'disabled'),
+    Output('report_5', 'disabled'),
+    Input('slider-rounding', 'value'),
+    Input('slider-clustering', 'value')
+)
+def update_buttons(sliderRounding, sliderClustering):
+
+    '''
+    Update all buttons based on the various inputs
+    '''
+
+    report1 = False
+    report3 = False
+    report4 = False
+    report5 = False
+
+    report2_child = "Report 2"
+    report2_disabled = False
+
+    if sliderRounding == 0 or sliderClustering == 0:
+        report2_child = "Disabled"
+        report2_disabled = True
+
+    return(report1, report2_child, report2_disabled, report3, report4, report5)
 
 '''
 NOTE need to figure out how to combine outputs
