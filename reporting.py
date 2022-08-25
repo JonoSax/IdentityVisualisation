@@ -3,8 +3,7 @@ import numpy as np
 import pandas as pd
 from time import localtime, strftime
 from openpyxl import Workbook
-
-from utilities import mdsCalculation
+from utilities import *
 
 pd.options.mode.chained_assignment = None
 
@@ -18,15 +17,15 @@ class Metrics:
     can be easily split off and set as seperate functions for reuse.
     '''
 
-    def __init__(self, mdsResult, permissions, identities, uiddf, attribute = None):
+    def __init__(self, mdsResult, permissions, identities, uiddf, attribute = None, specificTime = None):
 
         self.mdsResult = self.setdf(mdsResult)
         self.key = uiddf
         self.attribute = attribute
         self.permissions = permissions.copy()
+        self.specificTime = self.getTime(self.mdsResult, specificTime)
 
         # NOTE this is only until the datamodel object is updated for multi-index as well
-        
         self.permissionsNew = permissions.copy()
         self.permissionsNew[self.key] = [s.split("_")[0] for s in self.permissionsNew.index]
         self.permissionsNew["_DateTime"] = [int(s.split("_")[1]) for s in self.permissionsNew.index]
@@ -40,13 +39,22 @@ class Metrics:
         self.dfDistances = None
         self.permissionFixes = None
 
-    def getLatestTime(self, df):
+    def getTime(self, df, val = "max"):
 
         '''
         For a given dataframe, get the latest time
         '''
 
-        return df.reset_index()["_DateTime"].max()
+        if val == 'max':
+            dt = df.reset_index()["_DateTime"].max()
+        elif val == 'min':
+            dt = df.reset_index()["_DateTime"].min()
+        elif type(val) == int:
+            dt = sorted(df.reset_index()["_DateTime"].unique())[val]
+        else:
+            dt = None
+
+        return dt
 
     def setdf(self, df):
 
@@ -89,7 +97,10 @@ class Metrics:
                 "Unnamed" not in a and          # remove the unnamed column that appears randomly 
                 self.key not in a and              # remove the unique identifier
                 len(df[a].unique()) < len(df)/len(df["_DateTime"].unique())]    # remove any entry which appears only once
-            self.attribute = attr
+        elif type(attr) is str:
+            attr = [attr]
+
+        self.attribute = attr
 
         dfAll = df.copy()
         newCols = [f"_Distance{a}" for a in attr]
@@ -103,7 +114,7 @@ class Metrics:
             for av in attributeValues:
                 dfAttr = df[df[a] == av][["Dim0", "Dim1", "Dim2", self.key, "_DateTime", a]]
 
-                centrePoint = np.median(dfAttr[dfAttr["_DateTime"] == self.getLatestTime(dfAttr)][["Dim0", "Dim1", "Dim2"]], 0)
+                centrePoint = np.median(dfAttr[dfAttr["_DateTime"] == self.getTime(dfAttr)][["Dim0", "Dim1", "Dim2"]], 0)
                 dists = np.sum((dfAttr[["Dim0", "Dim1", "Dim2"]] - centrePoint)**2, 1)
                 dfAttr[newCol] = dists 
                 
@@ -139,7 +150,15 @@ class Metrics:
         for attr in attrDist:
             std = allAttrDesc[attr].loc["std"]
             mean = allAttrDesc[attr].loc["mean"]
-            outliers = self.dfDistances[self.dfDistances[attr] > (mean + std*3)]
+            q3 = allAttrDesc[attr].loc["75%"]
+            iqr = q3 - allAttrDesc[attr].loc["25%"]
+
+            # 3 standard deviations from the mean of distances
+            # outliers = self.dfDistances[self.dfDistances[attr] > (mean + std*3)]
+
+            # 1.5 x iqr beyond the q3 
+            outliers = self.dfDistances[self.dfDistances[attr] > (iqr * 1.5 + q3)]
+
             outliers["type"] = attr.replace("_Distance", "")
             if outlierdf is None:
                 outlierdf = outliers
@@ -196,7 +215,7 @@ class Metrics:
                 # Using a cut of off 80% (either add or remove) because:
                 #   1 - If I included all values then the data frame would become unweildly
                 #   2 - 80% is just a nice number, coming from the 80/20 rule
-                targetValues = diff[(diff > 0.8) | (diff < -0.8)].to_frame("Occurence").reset_index()
+                targetValues = diff[(diff > 0.8) | (diff < -0.8)].to_frame("Occurence").reset_index().rename(columns={'index': 'Value'})
 
                 targetValues[[self.key, "UnixTime", "Attribute", "Element"]] = [id, t, idtype, idattr]
 
@@ -207,7 +226,7 @@ class Metrics:
 
         self.rawOutlierInfo = info
 
-    def createReport(self, name = ""):
+    def createReport1(self, name = "1"):
 
         '''
         Create a report with actional information for each permission for each relevant identity 
@@ -224,16 +243,9 @@ class Metrics:
         # NOTE is a sunburst chart useful? https://plotly.com/python/sunburst-charts/
         '''
 
-        def addToReport(ws, rowNo, content):
-
-            for n, con in enumerate(content, 1):
-                ws.cell(row=int(rowNo), column=n).value = con
-
-            rowNo += 1
-
         # create the report as an excel and save in the downloads
         timeInfo = strftime("%Y%m%d.%H%M", localtime())
-        reportPath = f"{os.path.expanduser('~')}\\Downloads\\Report{name}_{timeInfo}.xlsx"
+        reportPath = f"{os.path.expanduser('~')}\\Downloads\\Report_{name}_{timeInfo}.xlsx"
         wb = Workbook()
         del wb["Sheet"]
         # excelExport = pd.ExcelWriter(reportPath)
@@ -254,7 +266,7 @@ class Metrics:
         regarding the number of permissions, number of identities and variance in permissivity 
         '''
 
-        latestTime = self.getLatestTime(self.identities)
+        latestTime = self.getTime(self.identities)
 
         latestIdentities = self.identities.loc[(slice(None), latestTime), :].droplevel(1)
         latestPermissions = self.permissions.loc[(slice(None), latestTime), :].droplevel(1)
@@ -460,7 +472,7 @@ class Metrics:
 
         prioritySummary = [
             "The impact of performing the following modification to the identities and permissions is a:",
-            f"{int(distDesc['min']*100)} to {int(distDesc['max']*100)}% reduction in permission distances across all elements for an median of {int(distDesc['50%']*100)}%",
+            f"{int(distDesc['min']*100)} - {int(distDesc['max']*100)}% reduction in permission distances across all elements for an median of {int(distDesc['50%']*100)}%",
             f"{distInfo.T.max().idxmax()} in attribute {distInfo.max().idxmax().replace('_Distance', '')} will improve the most"
         ]
 
@@ -482,7 +494,7 @@ class Metrics:
             addToReport(wsPriorityActions, rowNo, info)
 
         # -------------- Important Actions --------------
-        wsImportantActions = wb.create_sheet("Import Actions")
+        wsImportantActions = wb.create_sheet("Important Actions")
         wsImportantActions.cell(row=1, column=1).value = "Actions which would improve your permission environment but should be secondary to the Priority actions"   
         wsImportantActions.cell(row=2, column=1).value = "The following information outlines the next 30 permissions which are causing the greatest identity discrepancy"
         
@@ -555,18 +567,125 @@ def report_1(df, permissions, identities, uiddf, attribute = None):
     Compare each identities position in relation to other identities with similar attribute information. 
     If their position has changed by some significant amount, include them in a report for possible 
     over/under provisioning
+
+    NOTE TODO
+        Include a slider next to the report which allows you to dial the sensitiity up and down
     '''
 
     distances = Metrics(df, permissions, identities, uiddf)
-    distances.calculateDistances()
+    distances.calculateDistances(attr = attribute)
     distances.findOutliers()    
     distances.outlierEntitlements()
-    distances.createReport()
+    distances.createReport1()
     
+def report_2(df, permissions, identities, uiddf, attribute, sliderRound, sliderCluster, sliderDate, hover_data, name = "2"):
 
-    print("Test")
+    '''
+    Report on the clusters that are observed in the data based on the value of the sliders. 
+    Report on the permissions and the other identity attributes and their % breakdown for 
+    all identities within each partcular bubble. 
 
-    pass
+    NOTE TODO
+        Report on the permissions which differentiate each clustering
+    '''
+
+    timeInfo = strftime("%Y%m%d.%H%M", localtime())
+    reportPath = f"{os.path.expanduser('~')}\\Downloads\\Report_{name}_{timeInfo}.xlsx"
+    wb = Workbook()
+    del wb["Sheet"]
+    # excelExport = pd.ExcelWriter(reportPath)
+
+    # https://github.com/Khan/openpyxl/blob/master/doc/source/tutorial.rst
+    
+    # ---------- Identify the breakdown of permissions in each cluster ----------
+
+    wsPermAnalysis = wb.create_sheet("Permission analysis")
+    wsPermAnalysis.cell(row=1, column=1).value = "Analysis of the permission per cluster"   
+    wsPermAnalysis.cell(row=2, column=1).value = "The following information breaks down the % of identities each cluster who have the corresponding permission."
+    wsPermAnalysis.cell(row=3, column=1).value = "The permissions are ordered from the most to least common across all individuals (including those not clustered)."
+    rowNo = np.array(5)   
+
+    aggDict = aggDict = {hd: lambda x: list(set(x))[0] if len(set([str(n) for n in x]))==1 else x for hd in hover_data if hd != attribute}
+    pos = Metrics(df, permissions, identities, uiddf, attribute, sliderDate)
+    dfMod = pos.mdsResult
+    dfMod = df[df["_DateTime"] == df["_DateTime"].unique()[sliderDate]].reset_index(drop=True)
+    dfPos = clusterData(dfMod, uiddf, attribute, sliderRound, aggDict)
+    dfPos = dfPos.set_index("_ClusterID")
+    dfClusters = dfPos[dfPos["_Count"] > sliderCluster * dfPos["_Count"].max()]
+    clusterNames = sorted(dfClusters.index)
+    dfAggregate = pd.DataFrame(None, columns=clusterNames)
+
+    # get the breakdown of the permissions in each cluster
+    for clid, dfCluster in dfClusters.iterrows():
+        uids = dfCluster[uiddf]
+        if type(uids) is str:
+            uids = [uids]
+        
+        dfAggregate[clid] = pos.permissions.loc[[(i, pos.specificTime) for i in uids]].sum(0)/len(uids)
+
+    # sort the aggregate df by the order of the number of identities which have the permissions 
+    # (highest to lowest)
+    permissionOrder = pos.permissions.loc[(slice(None), pos.specificTime), :].sum(0).sort_values(ascending = False)
+    dfAggregate = dfAggregate.reindex(permissionOrder.index)
+
+    # remove entries where the value is 0 acroos all identities (ie no identity has this permission)
+    dfAggregate[dfAggregate==0] = None
+    dfAggregate = dfAggregate.dropna(how = "all").fillna(0)
+
+    addToReport(wsPermAnalysis, rowNo, ["Cluster ID"] + clusterNames)
+    addToReport(wsPermAnalysis, rowNo, ["Element clustering"] + [dfPos.loc[c][attribute] for c in clusterNames])
+    addToReport(wsPermAnalysis, rowNo, ["Cluster Count"] + [int(dfPos.loc[c]["_Count"]) for c in clusterNames])
+    addToReport(wsPermAnalysis, rowNo, ["Permission Value"])
+    rowNo += 1
+    for idx, dfag in dfAggregate.iterrows():
+        addToReport(wsPermAnalysis, rowNo, [idx] + [np.round(d, 2) for d in dfag])
+
+    # ---------- Identify the breakdown of elements of each attribute in each cluster ----------
+
+    wsAttrAnalysis = wb.create_sheet("Attribute analysis")
+    wsAttrAnalysis.cell(row=1, column=1).value = "Analysis of the attributes and elements per cluster"   
+    wsAttrAnalysis.cell(row=2, column=1).value = "The following information breaks down the % of elements in cluster for each identity attribute."
+    wsAttrAnalysis.cell(row=3, column=1).value = "Each table is ordered from the one with the least to the most number of distinct elements."
+    rowNo = np.array(5)   
+
+    # Select the attributes for analysis
+    analyseAttrs = [h for h in hover_data if h.find("_") == -1 and h != uiddf and h != attribute]
+
+    # get the breakdown of the other attributes in each cluster
+    attrBreakDowns = {}
+    for attr in analyseAttrs:
+        allDfAttr = pos.identities.loc[(slice(None), pos.specificTime), :][attr].unique()
+        dfAttr = pd.DataFrame(None, index = sorted(allDfAttr), columns = clusterNames)
+        dfCluster = dfClusters[[attr]]
+        for clid, dc in dfCluster.iterrows():
+            elements = dc[attr]
+            if type(elements) is str:
+                elements = np.array([elements])
+
+            # update each element with the proporption of each element in the cluster
+            for e in list(set(elements)):
+                dfAttr.loc[e].loc[clid] = (elements == e).sum()/elements.__len__()
+
+        # drop rows where there are no inputted values and replace nan with 0's
+        dfAttr = dfAttr.dropna(how = 'all').fillna(0)
+        attrBreakDowns[attr] = dfAttr
+
+    # order the attributes by the least number of unique elements first
+    attrOrderX = np.array([len(attrBreakDowns[a]) for a in attrBreakDowns]).argsort()
+    attrOrder = [list(attrBreakDowns.keys())[x] for x in attrOrderX]
+
+    addToReport(wsAttrAnalysis, rowNo, ["Cluster ID"] + clusterNames)
+    addToReport(wsAttrAnalysis, rowNo, ["Element Clustering"] + [dfPos.loc[c][attribute] for c in clusterNames])
+    addToReport(wsAttrAnalysis, rowNo, ["Cluster Count"] + [int(dfPos.loc[c]["_Count"]) for c in clusterNames])
+    rowNo += 1
+    for attr in attrOrder:
+        attrDf = attrBreakDowns[attr]
+        addToReport(wsAttrAnalysis, rowNo, [f"Attribute: {attr}"])
+        for idx, dfag in attrDf.iterrows():
+            addToReport(wsAttrAnalysis, rowNo, [idx] + [np.round(d, 2) for d in dfag])
+        rowNo += 1
+
+    wb.save(filename = reportPath)
 
 if __name__ == "__main__":
 
