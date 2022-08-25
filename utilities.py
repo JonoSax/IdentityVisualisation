@@ -1,6 +1,8 @@
 import numpy as np
 from sklearn import manifold
 import pandas as pd
+from openpyxl import Workbook
+
 
 def mdsCalculation(permissionData: pd.DataFrame, privilegedData = None, dims = 3):
 
@@ -146,6 +148,30 @@ def clusterData(df, uidAttr, attribute, sliderRoundValue, dictRules = None):
 
     dfCluster = dfMod[dfMod["_Count"] > 1].groupby(["Dim0r", "Dim1r", "Dim2r", attribute]).agg(aggDict).reset_index()
     dfPos = pd.concat([dfUniqID, dfCluster])
-    dfPos = dfPos.sort_values(attribute)
+    dfPos = dfPos.sort_values(attribute).reset_index(drop = True)
 
+    # add cluster names based on the size of the cluster and the attribute name
+    clusterID = dfPos[["_Count", attribute]].sort_values(by = ["_Count", attribute], ascending=[False, True]).reset_index()
+    
+    cStore = []
+    for c, _ in clusterID.sort_values("index").iterrows():
+        c = str(c)
+        while len(c)<len(str(clusterID.__len__())):
+            c = "0" + str(c)
+        cStore.append(f"Cluster {c}")
+    
+    dfPos["_ClusterID"] = cStore
+        
     return(dfPos)
+
+
+def addToReport(ws, rowNo, content):
+
+    '''
+    Add a row to an openpyxl worksheet
+    '''
+
+    for n, con in enumerate(content, 1):
+        ws.cell(row=int(rowNo), column=n).value = con
+
+    rowNo += 1
