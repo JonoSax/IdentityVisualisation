@@ -12,7 +12,7 @@ from plotly.colors import hex_to_rgb
 import numpy as np
 from textwrap import wrap
 import reporting
-from utilities import clusterData
+from utilities import clusterData, getClusterLimit
 
 pd.options.mode.chained_assignment = None
 
@@ -115,7 +115,20 @@ def createInteractivePlot(dataModel : object):
                     clearable = False
                 )
             ],
-            style={'width': '49%', 'display': 'inline-block'})
+            style={'width': '49%'}),
+            
+            html.Div([
+                dcc.Dropdown(
+                    options = [""],
+                    value = "",     # select an attribute with the fewest variables initially
+                    id='selectableDropDown',
+                    placeholder="Select elements to exclude",
+                    multi = True,      # for selecting multiple values set to true
+                    clearable = True
+                )
+            ],
+            style={'width': '49%'})
+
         ], style={
             'padding': '0px 5px'
         }),
@@ -178,7 +191,7 @@ def createInteractivePlot(dataModel : object):
 
             # slider for clustering of points
             html.Div([
-                dcc.Slider(0, 1,
+                dcc.Slider(0, 2,
                         value=0,
                         id='slider-rounding',
                         disabled = False,
@@ -339,6 +352,7 @@ def createInteractivePlot(dataModel : object):
         dcc.Store(data = os.getpid(), id = "pid"),
         dcc.Store(data = hover_data, id = "hover_data"),
         dcc.Store(data = "info", id = "info"),
+        dcc.Store(data = None, id = "identitiesPlotted"),
 
         html.Div(id='output')
     ])
@@ -347,9 +361,12 @@ def createInteractivePlot(dataModel : object):
     return app
 
 # plotly figure updates
-@app.callback(Output('plotly_figure', 'figure'),
+@app.callback(
+    Output('plotly_figure', 'figure'),
+    Output('identitiesPlotted', 'data'),
     Input('identityRepresentations', 'data'),
     Input('selectedDropDown', 'value'),
+    Input('selectableDropDown', 'value'),
     Input('uidAttr', 'data'), 
     Input('hover_data', 'data'), 
     Input('toggle-in', 'value'), 
@@ -360,7 +377,7 @@ def createInteractivePlot(dataModel : object):
     Input('slider-yAxis', 'value'),
     Input('slider-zAxis', 'value')
     )
-def update_graph(dfjson, attribute, uidAttr, hover_data, trackingToggle, sliderDateValue, sliderRoundValue, sliderClusterValue, sliderXScale, sliderYScale, sliderZScale):
+def update_graph(dfIDjson, attribute, elementsExclude, uidAttr, hover_data, trackingToggle, sliderDateValue, sliderRoundValue, sliderClusterValue, sliderXScale, sliderYScale, sliderZScale):
 
     '''
     Take in the raw data and selected information and create visualisation
@@ -380,23 +397,32 @@ def update_graph(dfjson, attribute, uidAttr, hover_data, trackingToggle, sliderD
         sliderZScale: {str(sliderZScale)},
         ''')
 
-    df = pd.read_json(dfjson, orient='split')
-    df[hover_data] = df[hover_data].astype(str)
-    dataColumns = list(df.columns)
+    attribute = attribute.split(":")[0]
+    dfID = pd.read_json(dfIDjson, orient='split')
+
+    # if there are selected element to exclude, remove them from all processing
+    if len(elementsExclude) > 0:
+        dfID = dfID[~dfID[attribute].isin(elementsExclude)]
+
+    # if there is no info, just return an empty plot
+    if len(dfID) == 0:
+        return px.scatter_3d(pd.DataFrame(None))
+
+    dfID[hover_data] = dfID[hover_data].astype(str)
+    dataColumns = list(dfID.columns)
     dims = sum(1 for x in list(dataColumns) if x.startswith ("Dim"))
-    allTimes = df["_DateTime"].unique()
-    allTimesFormat = df["_PermissionDateTime"].unique()
+    allTimes = dfID["_DateTime"].unique()
+    allTimesFormat = dfID["_PermissionDateTime"].unique()
 
     # remove the count info to match to the data frame
-    attribute = attribute.split(":")[0]
-    plotTitle = f"{dims}D visualising {attribute} for {len(df)} data points"
+    plotTitle = f"{dims}D visualising {attribute} for {len(dfID)} data points"
 
     # ---------- Track attributes across the time inputs ----------
     if trackingToggle:
 
         print(f"     Tracking historical data with 3D plotting for {attribute}")
 
-        uniqueIDs = df[uidAttr].unique()
+        uniqueIDs = dfID[uidAttr].unique()
         allSizes = np.linspace(4, 12, len(allTimes)).astype(int)
 
         fig = go.Figure()
@@ -404,7 +430,7 @@ def update_graph(dfjson, attribute, uidAttr, hover_data, trackingToggle, sliderD
 
         # create a dictionary to colour the traces depending on the attribute and time of the data
         transparency = np.linspace(0.4, 1, len(allTimes))
-        for n_c, c in enumerate(sorted(df[attribute].unique())):
+        for n_c, c in enumerate(sorted(dfID[attribute].unique())):
             colourDict[str(c)] = {}
             for n_a, a in enumerate(allTimes):
                 colourDict[str(c)][a] = f"rgba{tuple(np.append(hex_to_rgb(colours.Plotly[n_c%len(colours.Plotly)]), transparency[n_a]))}"
@@ -417,10 +443,10 @@ def update_graph(dfjson, attribute, uidAttr, hover_data, trackingToggle, sliderD
         # Combine the individual positions and take the median positions of all identities for the particular
         # attribute and dates if the attribute selected is not the unique identifier
         if attribute != uidAttr:
-            allAttrs = df[attribute].unique()
+            allAttrs = dfID[attribute].unique()
             data = []
             for attr in allAttrs:
-                dfAttrId = df[df[attribute] == attr]
+                dfAttrId = dfID[dfID[attribute] == attr]
                 for dt in allTimes:
                     data.append([
                         np.median(dfAttrId[dfAttrId["_DateTime"] == dt]["Dim0"]), 
@@ -434,13 +460,13 @@ def update_graph(dfjson, attribute, uidAttr, hover_data, trackingToggle, sliderD
 
             hover_data = ["Count", attribute, "_PermissionDateTime"]
             dfTrack = pd.DataFrame(data, columns = ["Dim0", "Dim1", "Dim2", "_DateTime"] + hover_data)
-            dfTrack = dfTrack.combine_first(pd.DataFrame(columns=df.columns))
+            dfTrack = dfTrack.combine_first(pd.DataFrame(columns=dfID.columns))
             uniqueIDs = dfTrack[attribute].unique()
 
         # if the selected attribute is the unique identifier, provide all data (there will
         # no combining of data)
         else:
-            dfTrack = df
+            dfTrack = dfID
 
         dfTrack = dfTrack.sort_values("_DateTime")
         uidAttr = attribute
@@ -514,19 +540,21 @@ def update_graph(dfjson, attribute, uidAttr, hover_data, trackingToggle, sliderD
         print(f"     Plotting data with 3D plotting for {attribute} and relative number of identities")
 
         # process only data for this time period
-        dfMod = df[df["_DateTime"] == df["_DateTime"].unique()[sliderDateValue]].reset_index(drop=True)
+        dfMod = dfID[dfID["_DateTime"] == dfID["_DateTime"].unique()[sliderDateValue]].reset_index(drop=True)
 
         # for all identity attributes, if they are all the same for all aggregated identities report it otherwise set as "Mixed". 
         aggDict = {hd: lambda x: list(set(x))[0] if len(set([str(n) for n in x]))==1 else "Mixed" for hd in hover_data if hd != attribute}
         
         # get the clustered data
-        # NOTE maybe create a unique ID number for each cluster so it can be referred to 
-        # in reports
         dfPos = clusterData(dfMod, uidAttr, attribute, sliderRoundValue, aggDict)
 
+        # filter out some of the clusters PER element 
         if sliderClusterValue > 0:
-            dfPos = dfPos[dfPos["_Count"] > sliderClusterValue * dfPos["_Count"].max()]
-        
+            dfPos = getClusterLimit(dfPos, attribute, sliderClusterValue)
+            clusteringInfo = f"displaying clusters with a minimum of {int(sliderClusterValue*100)}% of the max count of identities"
+        else:
+            clusteringInfo = ""
+
         # hover_data.append("_Count")
         hover_data = sorted(hover_data)
 
@@ -543,13 +571,13 @@ def update_graph(dfjson, attribute, uidAttr, hover_data, trackingToggle, sliderD
                 opacity=1
                 )
 
-        plotTitle = f"Plotting and overlaying {len(dfMod)} identities for {len(dfPos)} unique positions colored based on {attribute} with a spatial resolution of {sliderRoundValue} from {allTimesFormat[sliderDateValue]}"
+        plotTitle = f"Plotting and overlaying {len(dfMod)} identities for {len(dfPos)} unique positions colored based on {attribute} with a spatial resolution of {sliderRoundValue} from {allTimesFormat[sliderDateValue]} {clusteringInfo}"
                         
     # ---------- Plot the raw identity data ----------
     else:
         print(f"     Plotting data with 3D plotting for {attribute}")
 
-        dfTime = df[df["_DateTime"] == df["_DateTime"].unique()[sliderDateValue]]
+        dfTime = dfID[dfID["_DateTime"] == dfID["_DateTime"].unique()[sliderDateValue]]
         dfTime = dfTime.sort_values(attribute)
 
         fig = px.scatter_3d(dfTime, 
@@ -591,7 +619,7 @@ def update_graph(dfjson, attribute, uidAttr, hover_data, trackingToggle, sliderD
             f.hovertemplate = f.hovertemplate.replace("Dim0=%{x}<br>Dim1=%{y}<br>Dim2=%{z}<br>", "")
 
     print("     Plot updated\n")
-    return fig
+    return fig, dfID.to_json(orient='split')
 
 @app.callback(Output('submit_plot', 'n_clicks'),
     Input('submit_plot', 'n_clicks'),
@@ -617,30 +645,31 @@ def save_plot(click, fig, info, selectedAttr):
 # report 1
 @app.callback(Output('report_1', 'n_clicks'),
     Input('report_1', 'n_clicks'),
-    Input('identityRepresentations', 'data'),
+    Input('identitiesPlotted', 'data'),
     Input('rawPermissionData', 'data'),
     Input('identityData', 'data'),
     Input('uidAttr', 'data'),
     Input('selectedDropDown', 'value'),
     )
-def report_1(click, idRep, idData, permData, uid, selectedAttr):
+def report_1(click, idPlotted, idData, permData, uid, selectedAttr):
 
     if click:
 
-        idRep = pd.read_json(idRep, orient='split')
+        idPlotted = pd.read_json(idPlotted, orient='split')
         idData = pd.read_json(idData, orient='split')
         permData = pd.read_json(permData, orient='split')
         selectedAttr = selectedAttr.split(":")[0]
 
-        reporting.report_1(idRep, idData, permData, uid, selectedAttr)
+        reporting.report_1(idPlotted, idData, permData, uid, selectedAttr)
 
     return 0
 
 # report 2
-@app.callback(Output('report_2', 'n_clicks'),
+@app.callback(
+    Output('report_2', 'n_clicks'),
     Input('report_2', 'n_clicks'),
     Input('plotly_figure', 'figure'),
-    Input('identityRepresentations', 'data'),
+    Input('identitiesPlotted', 'data'),
     Input('rawPermissionData', 'data'),
     Input('identityData', 'data'),
     Input('uidAttr', 'data'),
@@ -650,16 +679,16 @@ def report_1(click, idRep, idData, permData, uid, selectedAttr):
     Input('slider-dates', 'value'), 
     Input('hover_data', 'data')
     )
-def report_2(click, fig, idRep, idData, permData, uid, selectedAttr, sliderRound, sliderCluster, sliderDate, hover_data):
+def report_2(click, fig, idPlotted, idData, permData, uid, selectedAttr, sliderRound, sliderCluster, sliderDate, hover_data):
 
     if click:
 
-        idRep = pd.read_json(idRep, orient='split')
+        idPlotted = pd.read_json(idPlotted, orient='split')
         idData = pd.read_json(idData, orient='split')
         permData = pd.read_json(permData, orient='split')
         selectedAttr = selectedAttr.split(":")[0]
 
-        reporting.report_2(idRep, idData, permData, uid, selectedAttr, sliderRound, sliderCluster, sliderDate, hover_data)
+        reporting.report_2(idPlotted, idData, permData, uid, selectedAttr, sliderRound, sliderCluster, sliderDate, hover_data)
         save_plot(True, fig, "Report2_Plot", selectedAttr)
 
     return 0
@@ -780,9 +809,10 @@ def update_output(toggleValue, sliderRoundValue):
     Output('report_4', 'disabled'),
     Output('report_5', 'disabled'),
     Input('slider-rounding', 'value'),
-    Input('slider-clustering', 'value')
+    Input('slider-clustering', 'value'),
+    Input('toggle-in', 'value'), 
 )
-def update_buttons(sliderRounding, sliderClustering):
+def update_buttons(sliderRounding, sliderClustering, trackingToggle):
 
     '''
     Update all buttons based on the various inputs
@@ -796,11 +826,25 @@ def update_buttons(sliderRounding, sliderClustering):
     report2_child = "Report 2"
     report2_disabled = False
 
-    if sliderRounding == 0 or sliderClustering == 0:
+    if sliderRounding == 0 or trackingToggle:
         report2_child = "Disabled"
         report2_disabled = True
 
     return(report1, report2_child, report2_disabled, report3, report4, report5)
+    
+@app.callback(
+    Output('selectableDropDown', 'options'),
+    Input('selectedDropDown', 'value'),
+    Input('identityRepresentations', 'data'),
+)
+def generateSubCategories(attribute, identities):
+
+    identities = pd.read_json(identities, orient='split')
+    attribute = attribute.split(":")[0]
+
+    return sorted(identities[attribute].unique())
+
+
 
 '''
 NOTE need to figure out how to combine outputs
