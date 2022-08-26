@@ -132,7 +132,7 @@ def clusterData(df, uidAttr, attribute, sliderRoundValue, dictRules = None):
     '''
 
     dfMod = df.copy()
-    dfMod[["Dim0r", "Dim1r", "Dim2r"]] = dfMod[["Dim0", "Dim1", "Dim2"]].apply(lambda x: np.round(sliderRoundValue * np.round(x/sliderRoundValue), 2))
+    dfMod[["Dim0r", "Dim1r", "Dim2r"]] = dfMod[["Dim0", "Dim1", "Dim2"]].apply(lambda x: np.round(sliderRoundValue**2 * np.round(x/sliderRoundValue), 2))
     dfMod["_Count"] = dfMod.groupby(["Dim0r", "Dim1r", "Dim2r", attribute])[[uidAttr]].transform('count')
     dfUniqID = dfMod[dfMod["_Count"] == 1]
 
@@ -164,14 +164,42 @@ def clusterData(df, uidAttr, attribute, sliderRoundValue, dictRules = None):
         
     return(dfPos)
 
-
-def addToReport(ws, rowNo, content):
+def addToReport(ws, content, rowNo = None, colNo = None, colStart = 1, rowStart = 1):
 
     '''
-    Add a row to an openpyxl worksheet
+    Add a rowm or columns to an openpyxl worksheet
+
+    If you specify a rowNo then it will automatically write along columns (from colStart)
+    If you specify a colNo then it will automatically write down rows (from rowStart)
+
+    Remember this is excel not python so indexs start at 1 not 0!!!
     '''
 
-    for n, con in enumerate(content, 1):
-        ws.cell(row=int(rowNo), column=n).value = con
+    if rowNo is not None:
+        for n, con in enumerate(content, colStart):
+            ws.cell(row=int(rowNo), column=n).value = con
+        rowNo += 1
 
-    rowNo += 1
+    elif colNo is not None:
+        for n, con in enumerate(content, rowStart):
+            ws.cell(row=n, column=int(colNo)).value = con
+        colNo += 1
+
+def getClusterLimit(dfPos, attribute, sliderClusterValue):
+
+    '''
+    Select clusters with only a threshold number of identities based on the maximum 
+    size of the clusters for any given element per attribute
+    '''
+
+    dfPosSelect = None
+    for attr in dfPos[attribute].unique():
+        dfTemp = dfPos[dfPos[attribute] == attr]
+        minClusteringSize = int(sliderClusterValue * dfTemp["_Count"].max())-1
+        dfTempAttr = dfTemp[dfTemp["_Count"] > minClusteringSize]
+        if dfPosSelect is None:
+            dfPosSelect = dfTempAttr
+        else:
+            dfPosSelect = pd.concat([dfPosSelect, dfTempAttr])
+
+    return dfPosSelect

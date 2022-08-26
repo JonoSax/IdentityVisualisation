@@ -301,10 +301,10 @@ class Metrics:
         rowNo = np.array(4)     # make a mutable object so the addToReport can iterate on the same variable
         wsSummary.cell(row=int(rowNo), column=1).value = "10 most highly provisioned element groups"
         rowNo += 1
-        addToReport(wsSummary, rowNo, elementAnalysis.columns)
+        addToReport(wsSummary, elementAnalysis.columns, rowNo)
         elementAnalysis = elementAnalysis.sort_values(["Median", "Element"], ascending = [False, True])
         for _, info in elementAnalysis[:10].iterrows():
-            addToReport(wsSummary, rowNo, info)
+            addToReport(wsSummary, info, rowNo)
 
 
             # ----- Largest element groups -----
@@ -314,10 +314,10 @@ class Metrics:
         rowNo += 2
         wsSummary.cell(row=int(rowNo), column=1).value = "10 most populated elements"
         rowNo += 1
-        addToReport(wsSummary, rowNo, elementAnalysis.columns)
+        addToReport(wsSummary, elementAnalysis.columns, rowNo)
         elementAnalysis = elementAnalysis.sort_values(["IDCount", "Element"], ascending = [False, True])
         for _, info in elementAnalysis[:10].iterrows():
-            addToReport(wsSummary, rowNo, info)
+            addToReport(wsSummary, info, rowNo)
 
 
             # ----- Greatest permission spread in element groups -----
@@ -332,9 +332,9 @@ class Metrics:
         elementSpread["RelativeStandardDeviation"] /= elementSpread["RelativeStandardDeviation"].max()
         elementSpread["RelativeSpread"] /= elementSpread["RelativeSpread"].max()
         elementSpread = elementSpread.sort_values(["RelativeStandardDeviation", "IDCount"], ascending = [False, False])
-        addToReport(wsSummary, rowNo, elementSpread.columns)
+        addToReport(wsSummary, elementSpread.columns, rowNo)
         for _, info in elementSpread[:10].iterrows():
-            addToReport(wsSummary, rowNo, info)
+            addToReport(wsSummary, info, rowNo)
 
         # -------------- Priority Actions --------------
         '''
@@ -346,7 +346,7 @@ class Metrics:
                             attributes it affects.
         
         Occurence:      This is the occurence relative to others in the equivalent element defined as:
-                            1       = the identity is the only one in the elemtn with the permission 
+                            1       = the identity is the only one in the element with the permission 
                                         (unique exception)
                             1>      = the identity has the permission which is unusual 
                                         (rare exception)
@@ -477,33 +477,35 @@ class Metrics:
         ]
 
         for p in prioritySummary:
-            addToReport(wsPriorityActions, rowNo, [p])
+            addToReport(wsPriorityActions, [p], rowNo)
 
         rowNo += 1
 
-        addToReport(wsPriorityActions, rowNo, 
+        addToReport(wsPriorityActions, 
             ["Permissions to action", 
             "Action to take", 
             "Identities impacted", 
             "Attributes impacted", 
-            "Likelihood of impact"]
+            "Likelihood of impact"],
+            rowNo
             )
 
         # write the priority report
         for info in priorityInfo:
-            addToReport(wsPriorityActions, rowNo, info)
+            addToReport(wsPriorityActions, info, rowNo)
 
         # -------------- Important Actions --------------
         wsImportantActions = wb.create_sheet("Important Actions")
         wsImportantActions.cell(row=1, column=1).value = "Actions which would improve your permission environment but should be secondary to the Priority actions"   
         wsImportantActions.cell(row=2, column=1).value = "The following information outlines the next 30 permissions which are causing the greatest identity discrepancy"
         
-        addToReport(wsImportantActions, 4, 
+        addToReport(wsImportantActions, 
             ["Permissions to action", 
             "Action to take", 
             "Identities impacted", 
             "Attributes impacted", 
-            "Likelihood of impact"]
+            "Likelihood of impact"],
+            4
             )
 
         removeC = 0
@@ -523,7 +525,7 @@ class Metrics:
                     ", ".join(list(removeP["Attribute"].unique())), 
                     f"{int((np.abs(removeP['Occurence']).min())*100)}% - {int((np.abs(removeP['Occurence']).max())*100)}%"
                 ]
-                addToReport(wsImportantActions, rowNo, removeinfo)
+                addToReport(wsImportantActions, removeinfo, rowNo)
                 removeC += 1
                 rowNo += 1
 
@@ -537,22 +539,22 @@ class Metrics:
                     ", ".join(list(addP["Attribute"].unique())), 
                     f"{int((np.abs(addP['Occurence']).min())*100)}% - {int((np.abs(addP['Occurence']).max())*100)}%"
                 ]
-                addToReport(wsImportantActions, rowNo, addinfo)
+                addToReport(wsImportantActions, addinfo, rowNo)
                 addC += 1
                 rowNo += 1
 
         # -------------- All info ------------------
         wsAllInformation = wb.create_sheet("Raw Outlier Data")
         wsAllInformation.cell(row=1, column=1).value = "Raw data used for the Priority and Important actions"           
-        addToReport(wsAllInformation, 2, list(self.rawOutlierInfo.columns))
+        rowNo = np.array(2)
+        addToReport(wsAllInformation, list(self.rawOutlierInfo.columns), rowNo)
 
         '''
         for r in dataframe_to_rows(self.rawOutlierInfo, index=True, header=True):
             wsAllInformation.append(r)
         '''
-
-        for n, (_, r) in enumerate(self.rawOutlierInfo.iterrows(), 3):
-            addToReport(wsAllInformation, n, list(r))
+        for _, r in self.rawOutlierInfo.iterrows():
+            addToReport(wsAllInformation, list(r), rowNo)
         
         # -------------- Reference documentation --------------
         wsReference = wb.create_sheet("Reference")
@@ -581,12 +583,13 @@ def report_1(df, permissions, identities, uiddf, attribute = None):
 def report_2(df, permissions, identities, uiddf, attribute, sliderRound, sliderCluster, sliderDate, hover_data, name = "2"):
 
     '''
-    Report on the clusters that are observed in the data based on the value of the sliders. 
+    Report on the clusters that are currently observable in the data based on the value of the sliders. 
     Report on the permissions and the other identity attributes and their % breakdown for 
     all identities within each partcular bubble. 
 
     NOTE TODO
         Report on the permissions which differentiate each clustering
+        Add the core functionality of this into the metric object
     '''
 
     timeInfo = strftime("%Y%m%d.%H%M", localtime())
@@ -598,6 +601,10 @@ def report_2(df, permissions, identities, uiddf, attribute, sliderRound, sliderC
     # https://github.com/Khan/openpyxl/blob/master/doc/source/tutorial.rst
     
     # ---------- Identify the breakdown of permissions in each cluster ----------
+
+    '''
+    Report on the permissions of each cluster and the proporption of identities which have it in each cluster
+    '''
 
     wsPermAnalysis = wb.create_sheet("Permission analysis")
     wsPermAnalysis.cell(row=1, column=1).value = "Analysis of the permission per cluster"   
@@ -611,8 +618,9 @@ def report_2(df, permissions, identities, uiddf, attribute, sliderRound, sliderC
     dfMod = df[df["_DateTime"] == df["_DateTime"].unique()[sliderDate]].reset_index(drop=True)
     dfPos = clusterData(dfMod, uiddf, attribute, sliderRound, aggDict)
     dfPos = dfPos.set_index("_ClusterID")
-    dfClusters = dfPos[dfPos["_Count"] > sliderCluster * dfPos["_Count"].max()]
+    dfClusters = getClusterLimit(dfPos, attribute, sliderCluster)
     clusterNames = sorted(dfClusters.index)
+    clusterCount = [int(dfPos.loc[c]["_Count"]) for c in clusterNames]
     dfAggregate = pd.DataFrame(None, columns=clusterNames)
 
     # get the breakdown of the permissions in each cluster
@@ -629,18 +637,67 @@ def report_2(df, permissions, identities, uiddf, attribute, sliderRound, sliderC
     dfAggregate = dfAggregate.reindex(permissionOrder.index)
 
     # remove entries where the value is 0 acroos all identities (ie no identity has this permission)
+    # however create a floor value of 0.01 if there at least one permission for an identity
     dfAggregate[dfAggregate==0] = None
-    dfAggregate = dfAggregate.dropna(how = "all").fillna(0)
+    dfAggregate = np.clip(dfAggregate, 0.01, np.inf).dropna(how = "all").fillna(0)
 
-    addToReport(wsPermAnalysis, rowNo, ["Cluster ID"] + clusterNames)
-    addToReport(wsPermAnalysis, rowNo, ["Element clustering"] + [dfPos.loc[c][attribute] for c in clusterNames])
-    addToReport(wsPermAnalysis, rowNo, ["Cluster Count"] + [int(dfPos.loc[c]["_Count"]) for c in clusterNames])
-    addToReport(wsPermAnalysis, rowNo, ["Permission Value"])
+    addToReport(wsPermAnalysis, ["Cluster ID"] + clusterNames, rowNo)
+    addToReport(wsPermAnalysis, ["Element clustering"] + [dfPos.loc[c][attribute] for c in clusterNames], rowNo)
+    addToReport(wsPermAnalysis, ["Cluster Count"] + clusterCount, rowNo)
+    addToReport(wsPermAnalysis, ["Permission Value"], rowNo)
     rowNo += 1
     for idx, dfag in dfAggregate.iterrows():
-        addToReport(wsPermAnalysis, rowNo, [idx] + [np.round(d, 2) for d in dfag])
+        addToReport(wsPermAnalysis, [idx] + [np.round(d, 2) for d in dfag], rowNo)
+
+    # ---------- Report on the permissiosn which make this cluster differentiated from the other clusters ----------
+
+    '''
+    It is valuable to understand why the clusters have been created. At a high level this can be explaiend by 
+    the fact that different clusters will different sets of common permissions. 
+
+    HOWEVER it is extremely complicated to model the degree which a single permission has influence over the 
+    resultant clutsering, especially when identities within a cluster do not all have the same permissions. Also, 
+    given the 3D positions are discovered by an iterative machine learning algorithm, we are essentailly trying 
+    to understand why the "black box" algorithm has made its "decision" which is notoriously difficult.
+    
+    One fact is certain though: permissions which are uniquely in only one cluster contribute significantly to  
+    seperation of the cluster from other clusters.    
+    '''
+
+    wsPermUnique = wb.create_sheet("Differentiated permissions")
+    wsPermUnique.cell(row=1, column=1).value = "Analysis of the unique permissions"   
+    wsPermUnique.cell(row=2, column=1).value = "The following sheet reports on the unique permissions of each cluster and the fraction of identities in the cluster which have it."
+    wsPermUnique.cell(row=3, column=1).value = "The unique permissions are listed per cluster"
+
+    dfNet = dfAggregate * clusterCount
+    diffDict = {}
+    for cN, cC in zip(clusterNames, clusterCount):
+        dfExclude = dfNet[[c for c in clusterNames if c != cN]].sum(1)/(sum(clusterCount)-cC)
+        dfAggregate[cN]
+        # diff = dfAggregate[cN] - dfExclude 
+        diff = dfAggregate[cN] / dfExclude  # seach for the np.inf to find the unique permissions? 
+        # ad = diff.describe()
+        # iqr = ad["75%"] - ad["25%"]
+        # diffDict[cN] = diff[(diff>iqr*1.5+ad["75%"]) | (diff<ad["25%"]-iqr*1.5)]
+        diffDict[cN] = dfAggregate.loc[list(diff[diff == np.inf].index)][cN] # store only the permissions which are unique in each cluster and the % occurence in their cluster
+    
+    colNo = np.array(1)
+    wsPermUnique.cell(row=5, column=2).value = f"Identities with permission"
+    for n, key in enumerate(diffDict.keys()):
+        clusterInfo = diffDict[key].sort_values(ascending = False)
+        wsPermUnique.cell(row=5, column=(n*3 + 1)).value = f"{key} permissions"
+        addToReport(wsPermUnique, list(clusterInfo.index), colNo=colNo, rowStart=6)
+        addToReport(wsPermUnique, [np.round(c, 2) for c in clusterInfo], colNo=colNo, rowStart=6)
+        colNo += 1
 
     # ---------- Identify the breakdown of elements of each attribute in each cluster ----------
+
+    '''
+    Report of the breakdown of elements in each cluster. 
+
+    Each cluster has been formed around a single element but obvioulsy the other attributes do not necessarily
+    align so this is a breakdown per cluster of each element %
+    '''
 
     wsAttrAnalysis = wb.create_sheet("Attribute analysis")
     wsAttrAnalysis.cell(row=1, column=1).value = "Analysis of the attributes and elements per cluster"   
@@ -674,15 +731,15 @@ def report_2(df, permissions, identities, uiddf, attribute, sliderRound, sliderC
     attrOrderX = np.array([len(attrBreakDowns[a]) for a in attrBreakDowns]).argsort()
     attrOrder = [list(attrBreakDowns.keys())[x] for x in attrOrderX]
 
-    addToReport(wsAttrAnalysis, rowNo, ["Cluster ID"] + clusterNames)
-    addToReport(wsAttrAnalysis, rowNo, ["Element Clustering"] + [dfPos.loc[c][attribute] for c in clusterNames])
-    addToReport(wsAttrAnalysis, rowNo, ["Cluster Count"] + [int(dfPos.loc[c]["_Count"]) for c in clusterNames])
+    addToReport(wsAttrAnalysis, ["Cluster ID"] + clusterNames, rowNo)
+    addToReport(wsAttrAnalysis, ["Element Clustering"] + [dfPos.loc[c][attribute] for c in clusterNames], rowNo)
+    addToReport(wsAttrAnalysis, ["Cluster Count"] + clusterCount, rowNo)
     rowNo += 1
     for attr in attrOrder:
         attrDf = attrBreakDowns[attr]
-        addToReport(wsAttrAnalysis, rowNo, [f"Attribute: {attr}"])
+        addToReport(wsAttrAnalysis, [f"Attribute: {attr}"], rowNo)
         for idx, dfag in attrDf.iterrows():
-            addToReport(wsAttrAnalysis, rowNo, [idx] + [np.round(d, 2) for d in dfag])
+            addToReport(wsAttrAnalysis, [idx] + [np.round(d, 2) for d in dfag], rowNo)
         rowNo += 1
 
     wb.save(filename = reportPath)
