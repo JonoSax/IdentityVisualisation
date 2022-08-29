@@ -2,8 +2,9 @@ import numpy as np
 from sklearn import manifold
 import pandas as pd
 from openpyxl import Workbook
+# from numba import jit
 
-
+# @jit
 def mdsCalculation(permissionData: pd.DataFrame, privilegedData = None, dims = 3):
 
     '''
@@ -80,7 +81,7 @@ def mdsCalculation(permissionData: pd.DataFrame, privilegedData = None, dims = 3
     mds = manifold.MDS( 
         n_components=dims, 
         max_iter=1000,
-        eps=1e-9,
+        eps=1e-3,
         random_state=np.random.RandomState(seed=3),
         dissimilarity="precomputed",
         n_jobs=4, 
@@ -132,7 +133,7 @@ def clusterData(df, uidAttr, attribute, sliderRoundValue, dictRules = None):
     '''
 
     dfMod = df.copy()
-    dfMod[["Dim0r", "Dim1r", "Dim2r"]] = dfMod[["Dim0", "Dim1", "Dim2"]].apply(lambda x: np.round(sliderRoundValue**2 * np.round(x/sliderRoundValue), 2))
+    dfMod[["Dim0r", "Dim1r", "Dim2r"]] = dfMod[["Dim0", "Dim1", "Dim2"]].apply(lambda x: np.round(sliderRoundValue**2 * np.round(x/sliderRoundValue**2), 2))
     dfMod["_Count"] = dfMod.groupby(["Dim0r", "Dim1r", "Dim2r", attribute])[[uidAttr]].transform('count')
     dfUniqID = dfMod[dfMod["_Count"] == 1]
 
@@ -203,3 +204,54 @@ def getClusterLimit(dfPos, attribute, sliderClusterValue):
             dfPosSelect = pd.concat([dfPosSelect, dfTempAttr])
 
     return dfPosSelect
+
+def filterIdentityDataFrame(dfID, includeInfo = [], excludeInfo = []):
+
+    '''
+    From an identity data frame, filter based on multiple columns and specific conditions
+
+    Inputs
+    ------
+    dfID : pd.DataFrame
+        Contains columns of information in a pandas dataframe
+
+    includeInfo/excludeInfo : list of lists
+        Contains the column to search for the information and the specific value within that column
+
+    Priorities: 
+
+        If there is a conflict between the include/excludes the include will take priority
+
+    '''
+
+    # include data dictionary
+    includeDict = {}
+    for attr, ele in includeInfo:
+        if includeDict.get(attr) is None:
+            includeDict[attr] = [ele]
+        else:
+            includeDict[attr].append(ele)
+
+    # exclude data dictionary 
+    excludeDict = {}
+    for attr, ele in excludeInfo:
+        if excludeDict.get(attr) is None:
+            excludeDict[attr] = [ele]
+        else:
+            excludeDict[attr].append(ele)
+
+    if includeInfo != [] and excludeInfo != []:
+        dfLogic = ~[
+            np.all([~dfID[attr].isin(elems) for attr, elems in includeDict.items()], 0)
+            |
+            np.all([dfID[attr].isin(elems) for attr, elems in excludeDict.items()], 0)
+        ][0]
+            
+
+    elif includeInfo != []:
+        dfLogic = np.all([dfID[attr].isin(elems) for attr, elems in includeDict.items()], 0)
+
+    elif excludeInfo != []:
+        dfLogic = np.all([~dfID[attr].isin(elems) for attr, elems in excludeDict.items()], 0)
+
+    return dfID[dfLogic]
