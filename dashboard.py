@@ -12,7 +12,7 @@ from plotly.colors import hex_to_rgb
 import numpy as np
 from textwrap import wrap
 import reporting
-from utilities import clusterData, getClusterLimit
+from utilities import clusterData, getClusterLimit, filterIdentityDataFrame
 
 pd.options.mode.chained_assignment = None
 
@@ -22,6 +22,7 @@ TODO
     - How to pass an object to the dash app, not just the attributes? Performance
     issues?
     - Optimise dash computations with caching, parallelisation: https://dash.plotly.com/sharing-data-between-callbacks
+    - Persist the camera views of plots with data refreshes: https://plotly.com/python/reference/layout/#layout-uirevision 
 '''
 
 # Theme stuff: https://dash.plotly.com/external-resources 
@@ -53,7 +54,7 @@ def createInteractivePlot(dataModel : object):
     # Specify what data from the dataframe is to be selected and shared with the webbrowser
     selectedData = [d for d in sorted(list(df.columns)) 
         if d.lower().find("unnamed") == -1 and              # removed the unnamed columns
-        d.find(dataModel.joinKeys["permission"]) == -1]     # remove the permission uid
+        d != dataModel.joinKeys["permission"]]     # remove the permission uid
 
     # Specify what data from the dataframe will be included in the hovertext
     hover_data = [s for s in selectedData if s.lower().find("dim") == -1]
@@ -65,9 +66,10 @@ def createInteractivePlot(dataModel : object):
     yMinR = df["Dim1"].min()-r
     yMaxR = df["Dim1"].max()+r
     zMinR = df["Dim2"].min()-r
-    zMaxR = df["Dim2"].max()+r        
+    zMaxR = df["Dim2"].max()+r 
 
     marks = {}
+    # convert the datetime object of the permission extract into a human readable format
     if "_DateTime" in hover_data:
         hover_data.remove("_DateTime")
         selectedData.append("_PermissionDateTime")
@@ -86,8 +88,8 @@ def createInteractivePlot(dataModel : object):
 
 
     attrArray = np.array([[r, len(df[r].unique())] for r in hover_data])
-    dropDownStart = ": ".join(attrArray[attrArray[:, 1].astype(int).argsort()][0])
-    dropDownOpt = [": ".join(a) for a in attrArray]
+    dropDownOpt = [f"{attr}: {idNo} elements" for attr, idNo in attrArray if attr.find("DateTime") == -1]
+    dropDownStart = dropDownOpt[attrArray[:, 1].astype(int).argsort()[0]]
 
     # for values which are numeric, convert their values into a ranked position so that 
     # on the heat maps it can show up easily
@@ -120,11 +122,20 @@ def createInteractivePlot(dataModel : object):
             html.Div([
                 dcc.Dropdown(
                     options = [""],
-                    value = "",     # select an attribute with the fewest variables initially
-                    id='selectableDropDown',
+                    value = [],     # select an attribute with the fewest variables initially
+                    id='selectableDropDownExclude',
                     placeholder="Select elements to exclude",
                     multi = True,      # for selecting multiple values set to true
                     clearable = True
+                ),
+                dcc.Dropdown(
+                    options = [""],
+                    value = [],     # select an attribute with the fewest variables initially
+                    id='selectableDropDownInclude',
+                    placeholder="Select elements to include (BETA)",
+                    multi = True,      # for selecting multiple values set to true
+                    clearable = True, 
+                    disabled = False
                 )
             ],
             style={'width': '49%'})
@@ -136,70 +147,83 @@ def createInteractivePlot(dataModel : object):
         # main figure
         html.Div([
 
-            # range slider for x axis
             html.Div([
-                dcc.RangeSlider(xMinR, xMaxR,
-                        value=[xMinR, xMaxR],
-                        id='slider-xAxis',
-                        disabled = False,
-                        marks = None,
-                        vertical = True,
-                        allowCross=False,
-                        tooltip={"placement": "bottom", "always_visible": True}
+                html.Label("Axis control"),
+                html.Label("Dim0, Dim1, Dim2"),
+                
+                # range slider for x axis
+                html.Div([
+                    dcc.RangeSlider(xMinR, xMaxR,
+                            value=[xMinR, xMaxR],
+                            id="slider-xAxis",
+                            disabled = False,
+                            marks = None,
+                            vertical = True,
+                            allowCross=False,
+                            tooltip={"placement": "bottom", "always_visible": True}
+                    ),
+                    # html.Div(id='slider-output'),
+                    ], style={"margin-left": "15px", 'display': 'inline-block'}
                 ),
-                # html.Div(id='slider-output'),
-                ], style={"margin-left": "15px", 'display': 'inline-block'}
-            ),
 
-            # range slider for y axis
-            html.Div([
-                dcc.RangeSlider(yMinR, yMaxR,
-                        value=[yMinR, yMaxR],
-                        id='slider-yAxis',
-                        disabled = False,
-                        marks = None,
-                        vertical = True,
-                        allowCross=False, 
-                        tooltip={"placement": "bottom", "always_visible": True}
+                # range slider for y axis
+                html.Div([
+                    dcc.RangeSlider(yMinR, yMaxR,
+                            value=[yMinR, yMaxR],
+                            id="slider-yAxis",
+                            disabled = False,
+                            marks = None,
+                            vertical = True,
+                            allowCross=False, 
+                            tooltip={"placement": "bottom", "always_visible": True}
+                    ),
+                    # html.Div(id='slider-output'),
+                    ], style={"display": "inline-block"}
                 ),
-                # html.Div(id='slider-output'),
-                ], style={'display': 'inline-block'}
-            ),
 
-            # range slider for z axis
-            html.Div([
-                dcc.RangeSlider(zMinR, zMaxR,
-                        value=[zMinR, zMaxR],
-                        id='slider-zAxis',
-                        disabled = False,
-                        marks = None,
-                        vertical = True,
-                        allowCross=False,
-                        tooltip={"placement": "bottom", "always_visible": True}
+                # range slider for z axis
+                html.Div([
+                    dcc.RangeSlider(zMinR, zMaxR,
+                            value=[zMinR, zMaxR],
+                            id="slider-zAxis",
+                            disabled = False,
+                            marks = None,
+                            vertical = True,
+                            allowCross=False,
+                            tooltip={"placement": "bottom", "always_visible": True}
+                    ),
+                    # html.Div(id='slider-output'),
+                    ], style={"display": "inline-block"}
                 ),
-                # html.Div(id='slider-output'),
-                ], style={'display': 'inline-block'}
+            ], 
+            style = {"display": "inline-block"}
             ),
-
+            
             # plotly figure
             html.Div([
                 dcc.Graph(
                     id='plotly_figure'
                 )
-            ], style={'width': '800', 'height':'600', 'display': 'inline-block'}
+            ], 
+            style={'width': '800', 'height':'600', 'display': 'inline-block'}
             ),
-
+    
             # slider for clustering of points
             html.Div([
-                dcc.Slider(0, 2,
-                        value=0,
-                        id='slider-rounding',
-                        disabled = False,
-                        marks = None,
-                        vertical = True
-                ),
+                # html.Label("Clustering"),
+
+                html.Div([
+                    dcc.Slider(0, 2,
+                            value=0,
+                            id='slider-rounding',
+                            disabled = False,
+                            marks = None,
+                            vertical = True
+                    ),
+                ]),
                 # html.Div(id='slider-output'),
-                ], style={'display': 'inline-block'}
+            ], 
+            style={'display': 'inline-block'}
             ),
     
             # report buttons
@@ -207,7 +231,7 @@ def createInteractivePlot(dataModel : object):
                 # report1 button
                 html.Div([
                     html.Button(
-                        'Report 1', 
+                        'Outlier report', 
                         id='report_1', 
                         n_clicks=0
                         ),
@@ -217,7 +241,7 @@ def createInteractivePlot(dataModel : object):
                 # report2 button
                 html.Div([
                     html.Button(
-                        'Report 2', 
+                        'Cluster report', 
                         id='report_2', 
                         n_clicks=0,
                         hidden = True
@@ -236,7 +260,6 @@ def createInteractivePlot(dataModel : object):
                     ),
                     ], style={}
                 ),
-
 
                 # report3 button
                 html.Div([
@@ -263,7 +286,9 @@ def createInteractivePlot(dataModel : object):
                     html.Button('Report 5', id='report_5', n_clicks=0),
                     ], style={"margin-left": "15px", "margin-top": "15px"}
                 ),
-            ], style={'display': 'inline-block'})
+            ], 
+            style={'display': 'inline-block'}
+            )
         ]),
     
         # first line of buttons below the plot
@@ -346,13 +371,13 @@ def createInteractivePlot(dataModel : object):
 
         # data being transferred to call back functions
         dcc.Store(data = df[selectedData].to_json(orient='split'), id = "identityRepresentations"),
-        dcc.Store(data = dataModel.rawPermissionData.to_json(orient='split'), id = "rawPermissionData"),
+        dcc.Store(data = dataModel.rawPermissionData.astype(np.int8).to_json(orient='split'), id = "rawPermissionData"),
         dcc.Store(data = dataModel.identityData.to_json(orient='split'), id = "identityData"),
         dcc.Store(data = dataModel.joinKeys["identity"], id = "uidAttr"),
         dcc.Store(data = os.getpid(), id = "pid"),
         dcc.Store(data = hover_data, id = "hover_data"),
         dcc.Store(data = "info", id = "info"),
-        dcc.Store(data = None, id = "identitiesPlotted"),
+        dcc.Store(data = None, id = "identitiesPlotted"),           # store the plotted identity data 
 
         html.Div(id='output')
     ])
@@ -364,9 +389,11 @@ def createInteractivePlot(dataModel : object):
 @app.callback(
     Output('plotly_figure', 'figure'),
     Output('identitiesPlotted', 'data'),
+    Input('plotly_figure', 'figure'),
     Input('identityRepresentations', 'data'),
     Input('selectedDropDown', 'value'),
-    Input('selectableDropDown', 'value'),
+    Input('selectableDropDownExclude', 'value'),
+    Input('selectableDropDownInclude', 'value'),
     Input('uidAttr', 'data'), 
     Input('hover_data', 'data'), 
     Input('toggle-in', 'value'), 
@@ -377,7 +404,7 @@ def createInteractivePlot(dataModel : object):
     Input('slider-yAxis', 'value'),
     Input('slider-zAxis', 'value')
     )
-def update_graph(dfIDjson, attribute, elementsExclude, uidAttr, hover_data, trackingToggle, sliderDateValue, sliderRoundValue, sliderClusterValue, sliderXScale, sliderYScale, sliderZScale):
+def update_graph(fig, dfIDjson, attribute, elementsExclude, elementsInclude, uidAttr, hover_data, trackingToggle, sliderDateValue, sliderRoundValue, sliderClusterValue, sliderXScale, sliderYScale, sliderZScale):
 
     '''
     Take in the raw data and selected information and create visualisation
@@ -401,12 +428,17 @@ def update_graph(dfIDjson, attribute, elementsExclude, uidAttr, hover_data, trac
     dfID = pd.read_json(dfIDjson, orient='split')
 
     # if there are selected element to exclude, remove them from all processing
-    if len(elementsExclude) > 0:
-        dfID = dfID[~dfID[attribute].isin(elementsExclude)]
+    if len(elementsExclude) > 0 or len(elementsInclude) > 0:
+
+        # simplify the elements exclude info list for processing by the pandas df
+        includeInfo = [e.split(": ") for e in elementsInclude]
+        excludeInfo = [e.split(": ") for e in elementsExclude]
+
+        dfID = filterIdentityDataFrame(dfID, includeInfo, excludeInfo)
 
     # if there is no info, just return an empty plot
     if len(dfID) == 0:
-        return px.scatter_3d(pd.DataFrame(None))
+        return px.scatter_3d(pd.DataFrame(None)), None
 
     dfID[hover_data] = dfID[hover_data].astype(str)
     dataColumns = list(dfID.columns)
@@ -649,18 +681,19 @@ def save_plot(click, fig, info, selectedAttr):
     Input('rawPermissionData', 'data'),
     Input('identityData', 'data'),
     Input('uidAttr', 'data'),
+    Input('slider-dates', 'value'), 
     Input('selectedDropDown', 'value'),
     )
-def report_1(click, idPlotted, idData, permData, uid, selectedAttr):
+def report_1(click, idPlotted, idData, permData, uid, sliderDate, selectedAttr):
 
-    if click:
+    if click and idPlotted is not None:
 
         idPlotted = pd.read_json(idPlotted, orient='split')
         idData = pd.read_json(idData, orient='split')
         permData = pd.read_json(permData, orient='split')
         selectedAttr = selectedAttr.split(":")[0]
 
-        reporting.report_1(idPlotted, idData, permData, uid, selectedAttr)
+        reporting.report_1(idPlotted, idData, permData, uid, sliderDate, selectedAttr)
 
     return 0
 
@@ -681,10 +714,10 @@ def report_1(click, idPlotted, idData, permData, uid, selectedAttr):
     )
 def report_2(click, fig, idPlotted, idData, permData, uid, selectedAttr, sliderRound, sliderCluster, sliderDate, hover_data):
 
-    if click:
+    if click and idPlotted is not None:
 
         idPlotted = pd.read_json(idPlotted, orient='split')
-        idData = pd.read_json(idData, orient='split')
+        idData = pd.read_json(idData, orient='split').astype(np.int8)
         permData = pd.read_json(permData, orient='split')
         selectedAttr = selectedAttr.split(":")[0]
 
@@ -823,7 +856,7 @@ def update_buttons(sliderRounding, sliderClustering, trackingToggle):
     report4 = False
     report5 = False
 
-    report2_child = "Report 2"
+    report2_child = "Cluster Report"
     report2_disabled = False
 
     if sliderRounding == 0 or trackingToggle:
@@ -833,16 +866,46 @@ def update_buttons(sliderRounding, sliderClustering, trackingToggle):
     return(report1, report2_child, report2_disabled, report3, report4, report5)
     
 @app.callback(
-    Output('selectableDropDown', 'options'),
+    Output('selectableDropDownExclude', 'options'),
+    Output('selectableDropDownInclude', 'options'), 
     Input('selectedDropDown', 'value'),
-    Input('identityRepresentations', 'data'),
+    Input('identitiesPlotted', 'data'),
+    Input('identityRepresentations', 'data'), 
+    Input('selectableDropDownExclude', 'value'),
+    Input('selectableDropDownInclude', 'value'), 
 )
-def generateSubCategories(attribute, identities):
+def generateSubCategories(attribute, identitiesPlotted, identitiesAll, selectedDropDownExclude, selectedDropDownInclude):
 
-    identities = pd.read_json(identities, orient='split')
-    attribute = attribute.split(":")[0]
+    '''
+    Get all the possible options for the include and/or exclude categories
+    '''
+    '''
+    if identitiesPlotted is not None:
+        identitiesPlotted = pd.read_json(identitiesPlotted, orient='split')
+        attribute = attribute.split(":")[0]
+        dropDown = sorted([f"{attribute}: {ele}" for ele in identitiesPlotted[attribute].unique()] + selectedDropDownExclude)
+    elif selectedDropDownExclude is not None:
+        dropDown = selectedDropDownExclude
+    else:
+        dropDown = []
 
-    return sorted(identities[attribute].unique())
+    return dropDown, dropDown
+    '''
+
+    # NOTE keeping track of what is included AND excluded becomes pretty complicated.... 
+
+    if identitiesPlotted is not None:
+        identitiesPlotted = pd.read_json(identitiesPlotted, orient='split')
+        identitiesAll = pd.read_json(identitiesAll, orient='split')
+        attribute = attribute.split(":")[0]
+        dropDownExclude = sorted([f"{attribute}: {ele}" for ele in identitiesPlotted[attribute].unique()]) + selectedDropDownExclude
+        dropDownInclude = sorted([f"{attribute}: {ele}" for ele in identitiesAll[attribute].unique()]) + selectedDropDownInclude
+    else:
+        dropDownExclude = selectedDropDownExclude
+        dropDownInclude = selectedDropDownInclude
+
+    return dropDownExclude, dropDownInclude
+    
 
 
 
