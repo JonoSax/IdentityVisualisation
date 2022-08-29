@@ -7,6 +7,14 @@ from utilities import *
 
 pd.options.mode.chained_assignment = None
 
+'''
+TODO:
+
+    For the outlier detection, tbh straight line distance may not be the best metric for measuring error. 
+    A data point may be an outlier because it is out by a lot in one dimension but this might not be captured by 
+    a straight line distance. 
+'''
+
 class Metrics:
 
     '''
@@ -17,23 +25,17 @@ class Metrics:
     can be easily split off and set as seperate functions for reuse.
     '''
 
-    def __init__(self, mdsResult, permissions, identities, uiddf, attribute = None, specificTime = None):
+    def __init__(self, mdsResult, permissions, uiddf, attribute = None, specificTime = None):
 
-        self.mdsResult = self.setdf(mdsResult)
+        self.plottedIdentities = self.setdf(mdsResult)
         self.key = uiddf
         self.attribute = attribute
         self.permissions = permissions.copy()
-        self.specificTime = self.getTime(self.mdsResult, specificTime)
+        self.specificTime = self.getTime(self.plottedIdentities, specificTime)
+        
+        self.identities = self.plottedIdentities.set_index([self.key, "_DateTime"])
 
-        # NOTE this is only until the datamodel object is updated for multi-index as well
-        self.permissionsNew = permissions.copy()
-        self.permissionsNew[self.key] = [s.split("_")[0] for s in self.permissionsNew.index]
-        self.permissionsNew["_DateTime"] = [int(s.split("_")[1]) for s in self.permissionsNew.index]
-        self.permissions = self.permissionsNew.set_index([self.key, "_DateTime"])
-        
-        
-        self.identities = self.setdf(identities)
-        self.identities = self.identities.set_index([self.key, "_DateTime"])
+        self.permissions = self.getPermissions(self.plottedIdentities, permissions)
         
         self.outlierdf = None
         self.dfDistances = None
@@ -56,6 +58,27 @@ class Metrics:
 
         return dt
 
+    def getPermissions(self, iddf, permdf):
+
+        '''
+        From the identity dataframe which contains all the identities of interest, get
+        the permissiosn which correspond to these identities
+        '''
+
+        # NOTE this is only until the datamodel object is updated for multi-index as well
+        permdf = permdf.copy()
+        permdf[self.key] = [s.split("_")[0] for s in permdf.index]
+        permdf["_DateTime"] = [int(s.split("_")[1]) for s in permdf.index]
+        permdf = permdf.set_index([self.key, "_DateTime"])
+
+        if self.specificTime is not None:
+            permbool = (permdf.index.isin(iddf[self.key].unique(), 0)) & (permdf.index.isin([self.specificTime], 1))
+        else:
+            permbool = permdf.index.isin(iddf[self.key].unique(), 0)
+
+        return permdf[permbool]
+
+
     def setdf(self, df):
 
         '''
@@ -76,7 +99,7 @@ class Metrics:
 
         return(df)
 
-    def calculateDistances(self, df = None, attr = None):
+    def calculateDistances(self, df = None, attr = None, specificTime = None):
 
         '''
         Calculate the distances of all object in each attribute unless specified
@@ -87,7 +110,7 @@ class Metrics:
 
         ret = type(df) == pd.DataFrame
         if df is None:
-            df = self.mdsResult
+            df = self.identities.reset_index()
 
         if attr is None:
             attr = list(df.columns)
@@ -103,6 +126,11 @@ class Metrics:
         self.attribute = attr
 
         dfAll = df.copy()
+
+        # only calculate distances for the specific time period selected (if provided)
+        if specificTime is not None:
+            dfAll = dfAll[dfAll["_DateTime"] == specificTime]
+        
         newCols = [f"_Distance{a}" for a in attr]
         for a, newCol in zip(attr, newCols):
 
@@ -181,7 +209,10 @@ class Metrics:
         a list of exceptions should be imported to prevent re-occuring warnings
         '''
 
-        times = sorted(self.outlierdf.index.get_level_values(1).unique(),reverse=True)[:times]
+        if self.specificTime is None:
+            times = sorted(self.outlierdf.index.get_level_values(1).unique(),reverse=True)[:times]
+        else:
+            times = [self.specificTime]
 
         info = None
         for t in times:
@@ -266,10 +297,8 @@ class Metrics:
         regarding the number of permissions, number of identities and variance in permissivity 
         '''
 
-        latestTime = self.getTime(self.identities)
-
-        latestIdentities = self.identities.loc[(slice(None), latestTime), :].droplevel(1)
-        latestPermissions = self.permissions.loc[(slice(None), latestTime), :].droplevel(1)
+        latestIdentities = self.identities.loc[(slice(None), self.specificTime), :].droplevel(1)
+        latestPermissions = self.permissions.loc[(slice(None), self.specificTime), :].droplevel(1)
         elementAnalysis = pd.DataFrame(None, columns=["Attribute", "Element", "IDCount", "MinPermissions", "LowerQuartile", "Median", "UpperQuartile", "MaxPermissions"])
         elementSpread = pd.DataFrame(None, columns=["Attribute", "Element", "IDCount", "RelativeStandardDeviation", "RelativeSpread"])
         for attr in sorted(self.attribute):
@@ -289,7 +318,13 @@ class Metrics:
 
                 # Analyse the dispersion of permissions per element (using a minimum of 5 identities)
                 if len(ids) > 5:
-                    eleSpread = self.dfDistances.loc[(ids, latestTime), :][f"_Distance{attr}"]
+
+                    # eleSpread = self.dfDistances.loc[(ids, latestTime), :][f"_Distance{attr}"]
+                    eleSpread = self.dfDistances[self.dfDistances.index.isin(ids, level=0) & self.dfDistances.index.isin([self.specificTime] , level=1)]
+                    if len(eleSpread)==0:
+                        continue
+                        
+                    eleSpread = eleSpread[f"_Distance{attr}"]
                     idSpread = eleSpread.describe()
                     elementSpread.loc[len(elementSpread)] = [attr, ele, idSum["count"], idSpread["std"], idSpread["max"]-idSpread["min"]]
 
@@ -431,7 +466,7 @@ class Metrics:
         the acceptable boundaries or if it requires further action (ie see the important actions sheet). 
         '''
 
-        latestPermissions = self.permissions.loc[(slice(None), latestTime), :].droplevel(1).copy()
+        latestPermissions = self.permissions.loc[(slice(None), self.specificTime), :].droplevel(1).copy()
         modLatestPermissions = latestPermissions.copy()
 
         # create the permission data frame from the latest time export
@@ -454,26 +489,28 @@ class Metrics:
 
         # re-calculate the mds 
         perMos = mdsCalculation(allPerm)
-        dimNames = [f"Dim{n}" for n in range(3)]
+        dimNames = [f"Dim{n}_R" for n in range(3)]
 
         # merge all the positional and identity data together
         entitleExtract = pd.DataFrame(np.hstack([perMos, np.array(list(allPerm.index))]), columns = [*dimNames, *allPerm.index.names])
-        entitleExtract = entitleExtract.merge(self.identities.loc[(slice(None), latestTime), :].reset_index(), on=self.key)
-        entitleExtract[["Dim0", "Dim1", "Dim2"]] = entitleExtract[["Dim0", "Dim1", "Dim2"]].astype(float)
+        entitleExtract = entitleExtract.merge(self.identities.loc[(slice(None), self.specificTime), :].reset_index(), on=self.key)
+        entitleExtract[["Dim0", "Dim1", "Dim2"]] = entitleExtract[["Dim0_R", "Dim1_R", "Dim2_R"]].astype(float)
         entitleExtract["_DateTime"] = entitleExtract["_DateTime"].astype(int)
-        entitleExtract.loc[entitleExtract["Type"] == "Modified", "_DateTime"] = latestTime + 1      # iterate the latest time to create the "future" permission
+        entitleExtract.loc[entitleExtract["Type"] == "Modified", "_DateTime"] = self.specificTime + 1      # iterate the latest time to create the "future" permission
         
         #### RERUN THE OUTLIER CALCULATIONS AND THE DISTANCE FROM THE MEDIAN POINT
         dfNew = self.calculateDistances(entitleExtract, self.attribute)
-        oldDists = [dfNew.loc[i].loc[latestTime] for i in idsImpacted]
-        newDists = [dfNew.loc[i].loc[latestTime + 1] for i in idsImpacted]
+        oldDists = [dfNew.loc[i].loc[self.specificTime] for i in idsImpacted]
+        newDists = [dfNew.loc[i].loc[self.specificTime + 1] for i in idsImpacted]
         distInfo = pd.DataFrame([1-n/o for n, o in zip(newDists, oldDists)], index = idsImpacted)
         distDesc = pd.Series(np.hstack(1-np.array(newDists)/np.array(oldDists))).describe()
 
         prioritySummary = [
             "The impact of performing the following modification to the identities and permissions is a:",
             f"{int(distDesc['min']*100)} - {int(distDesc['max']*100)}% reduction in permission distances across all elements for an median of {int(distDesc['50%']*100)}%",
-            f"{distInfo.T.max().idxmax()} in attribute {distInfo.max().idxmax().replace('_Distance', '')} will improve the most"
+            (f"{distInfo.T.max().idxmax()} from {self.identities.loc[distInfo.T.max().idxmax()].loc[self.specificTime][self.attribute][0]}"
+                f" in attribute {distInfo.max().idxmax().replace('_Distance', '')}"
+                f" will improve the most")
         ]
 
         for p in prioritySummary:
@@ -562,7 +599,7 @@ class Metrics:
         print(f"----- {reportPath} created -----")
         wb.save(filename = reportPath)
 
-def report_1(df, permissions, identities, uiddf, attribute = None):
+def report_1(plotdf, permissions, uiddf, sliderDate, attribute = None):
 
     '''
     Report on any identities which have deviated significantly from other identiies with similar permissions as them
@@ -574,8 +611,8 @@ def report_1(df, permissions, identities, uiddf, attribute = None):
         Include a slider next to the report which allows you to dial the sensitiity up and down
     '''
 
-    distances = Metrics(df, permissions, identities, uiddf)
-    distances.calculateDistances(attr = attribute)
+    distances = Metrics(plotdf, permissions, uiddf, specificTime=sliderDate)
+    distances.calculateDistances(attr = attribute, specificTime = distances.specificTime)
     distances.findOutliers()    
     distances.outlierEntitlements()
     distances.createReport1()
@@ -588,7 +625,6 @@ def report_2(df, permissions, identities, uiddf, attribute, sliderRound, sliderC
     all identities within each partcular bubble. 
 
     NOTE TODO
-        Report on the permissions which differentiate each clustering
         Add the core functionality of this into the metric object
     '''
 
@@ -687,7 +723,7 @@ def report_2(df, permissions, identities, uiddf, attribute, sliderRound, sliderC
         clusterInfo = diffDict[key].sort_values(ascending = False)
         wsPermUnique.cell(row=5, column=(n*3 + 1)).value = f"{key} permissions"
         addToReport(wsPermUnique, list(clusterInfo.index), colNo=colNo, rowStart=6)
-        addToReport(wsPermUnique, [np.round(c, 2) for c in clusterInfo], colNo=colNo, rowStart=6)
+        addToReport(wsPermUnique, [np.clip(np.round(c, 2), 0.01, np.inf) for c in clusterInfo], colNo=colNo, rowStart=6)
         colNo += 1
 
     # ---------- Identify the breakdown of elements of each attribute in each cluster ----------
@@ -737,9 +773,10 @@ def report_2(df, permissions, identities, uiddf, attribute, sliderRound, sliderC
     rowNo += 1
     for attr in attrOrder:
         attrDf = attrBreakDowns[attr]
+        attrDf = attrDf
         addToReport(wsAttrAnalysis, [f"Attribute: {attr}"], rowNo)
         for idx, dfag in attrDf.iterrows():
-            addToReport(wsAttrAnalysis, [idx] + [np.round(d, 2) for d in dfag], rowNo)
+            addToReport(wsAttrAnalysis, [idx] + [0 if d == 0 else np.clip(np.round(d, 2), 0.01, np.inf) for d in dfag], rowNo)
         rowNo += 1
 
     wb.save(filename = reportPath)
