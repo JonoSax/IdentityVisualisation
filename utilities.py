@@ -193,19 +193,23 @@ def getClusterLimit(dfPos, attribute, sliderClusterValue):
     size of the clusters for any given element per attribute
     '''
 
-    dfPosSelect = None
+    dfPosSelect = None 
+    dfPosUnselect = None
     for attr in dfPos[attribute].unique():
         dfTemp = dfPos[dfPos[attribute] == attr]
         minClusteringSize = int(sliderClusterValue * dfTemp["_Count"].max())-1
-        dfTempAttr = dfTemp[dfTemp["_Count"] > minClusteringSize]
+        dfTempIncl = dfTemp[dfTemp["_Count"] > minClusteringSize]
+        dfTempExcl = dfTemp[dfTemp["_Count"] <= minClusteringSize]
         if dfPosSelect is None:
-            dfPosSelect = dfTempAttr
+            dfPosSelect = dfTempIncl
+            dfPosUnselect = dfTempExcl
         else:
-            dfPosSelect = pd.concat([dfPosSelect, dfTempAttr])
+            dfPosSelect = pd.concat([dfPosSelect, dfTempIncl])
+            dfPosUnselect = pd.concat([dfPosUnselect, dfTempExcl])
 
-    return dfPosSelect
+    return dfPosSelect, dfPosUnselect
 
-def filterIdentityDataFrame(dfID, includeInfo = [], excludeInfo = []):
+def filterIdentityDataFrame(dfID, uid, includeInfo = [], excludeInfo = []):
 
     '''
     From an identity data frame, filter based on multiple columns and specific conditions
@@ -253,5 +257,11 @@ def filterIdentityDataFrame(dfID, includeInfo = [], excludeInfo = []):
 
     elif excludeInfo != []:
         dfLogic = np.all([~dfID[attr].isin(elems) for attr, elems in excludeDict.items()], 0)
+        
+    else:
+        dfLogic = np.array([True] * len(dfID))
 
-    return dfID[dfLogic]
+    include = dfID[dfLogic]
+    exclude = dfID[~dfLogic]
+    
+    return include, exclude
