@@ -10,9 +10,11 @@ pd.options.mode.chained_assignment = None
 '''
 TODO:
 
-    For the outlier detection, tbh straight line distance may not be the best metric for measuring error. 
+    - For the outlier detection, tbh straight line distance may not be the best metric for measuring error. 
     A data point may be an outlier because it is out by a lot in one dimension but this might not be captured by 
-    a straight line distance. 
+    a straight line distance.
+
+    - Add descriptions of each input 
 '''
 
 class Metrics:
@@ -25,9 +27,9 @@ class Metrics:
     can be easily split off and set as seperate functions for reuse.
     '''
 
-    def __init__(self, mdsResult, permissions, uiddf, attribute = None, specificTime = None):
+    def __init__(self, plottedIdentities, permissions, uiddf, attribute = None, specificTime = None):
 
-        self.plottedIdentities = self.setdf(mdsResult)
+        self.plottedIdentities = self.setdf(plottedIdentities)
         self.key = uiddf
         self.attribute = attribute
         self.permissions = permissions.copy()
@@ -276,7 +278,7 @@ class Metrics:
 
         # create the report as an excel and save in the downloads
         timeInfo = strftime("%Y%m%d.%H%M", localtime())
-        reportPath = f"{os.path.expanduser('~')}\\Downloads\\Report_{name}_{timeInfo}.xlsx"
+        reportPath = f"{os.path.expanduser('~')}\\Downloads\\{name}_{timeInfo}.xlsx"
         wb = Workbook()
         del wb["Sheet"]
         # excelExport = pd.ExcelWriter(reportPath)
@@ -397,6 +399,9 @@ class Metrics:
                                         (rare exculision )
                             -1      = this identity is the only one in that element without the permission 
                                         (unique exculsion)
+
+
+                        
         '''
 
         wsPriorityActions = wb.create_sheet("Priority Actions")
@@ -595,11 +600,27 @@ class Metrics:
         
         # -------------- Reference documentation --------------
         wsReference = wb.create_sheet("Reference")
+        wsReference.cell(row=1, column=1).value = "This shee has general information which explains the results and the data that has been used to calculate the summaries."
 
+        # ---------- Explaining the priority actions sheet ----------
+        
+        wsReference.cell(row=3, column=1).value = "Priority Actions sheet:"
+        wsReference.cell(row=3, column=2).value = "This sheet describes the specific actions which, if taken, have been modelled to altera the permission environment. This will MOSTLY positive improvements in the permission space (ie will reduce identity spread and increase clusterting). However negative improvements can occur, most often when there are sub-clusters of the modelled element which makes it hard for the identity to be optimised. This does not invalidate the entire results, moreso it just requires qualitative analysis as to whether there are sub-clusters. Ideally these sub-clusters would be seperated somehow into distinct clusters."
+        
+        wsReference.cell(row=4, column=2).value = "Permissions to action"
+        wsReference.cell(row=4, column=3).value = "The permission which the action needs to be applied to"
+        wsReference.cell(row=5, column=2).value = "Action to take"	
+        wsReference.cell(row=5, column=3).value = "Whether the permission needs to be added or removed from the identities listed"
+        wsReference.cell(row=6, column=2).value = "Identities impacted"	
+        wsReference.cell(row=6, column=3).value = "List of identities which have been identified as either needed the permission added or removed"
+        wsReference.cell(row=7, column=2).value = "Attributes impacted"	
+        wsReference.cell(row=7, column=3).value = "The specific attribute in which the modelling has shown the improvement. This is included because this report can model the impact of permission changes across all attributes in a given set of identities, however its msot common use case will be for specific attribute anlaysis."
+        wsReference.cell(row=8, column=2).value = "Likelihood of impact"
+        wsReference.cell(row=8, column=3).value = "The % contributing factor that the specific attribute and action taken on the specified identity contributed to the change in identity permissivity. This is from 0-100% where 0% indicates the action made no difference and 100% means it definitely made a difference. Values between these indicate the relative impact that any given action like had on the results of the re-modelling. This is calculated by assessing the % of other identities who either have or don't have the permission. An identity which has a unique permission that is then removed, and conversly an identity who is the only one without a permission which then has it added, will have a 100% chance of reducing the permissivity distance because this unique permission will increase the identities difference relative to all other identities. If an permission is not unique to an identity then there is a chance that adding/removing the permission will actually increase the permissivity distance for a small number of identities who were similar to that identity beforehand. This is because of the a complex relationships between all identities which are simplified with the MDS algorithm which serves to minimise the global errors sometimes at the expense of local errors. It is impossible to individually model the impact of every permission in isolation because by definition the permissivity distances is a results of the relationship between identities NOT in isolation. For the modelling, only permissions which will have a contribution score of at least 80% are considered."
         print(f"----- {reportPath} created -----")
         wb.save(filename = reportPath)
 
-def report_1(plotdf, permissions, uiddf, sliderDate, attribute = None):
+def report_1(plotIDdf, permissions, uiddf, sliderDate, reportName, attribute = None):
 
     '''
     Report on any identities which have deviated significantly from other identiies with similar permissions as them
@@ -611,13 +632,13 @@ def report_1(plotdf, permissions, uiddf, sliderDate, attribute = None):
         Include a slider next to the report which allows you to dial the sensitiity up and down
     '''
 
-    distances = Metrics(plotdf, permissions, uiddf, specificTime=sliderDate)
+    distances = Metrics(plotIDdf, permissions, uiddf, specificTime=sliderDate)
     distances.calculateDistances(attr = attribute, specificTime = distances.specificTime)
     distances.findOutliers()    
     distances.outlierEntitlements()
-    distances.createReport1()
+    distances.createReport1(reportName)
     
-def report_2(df, permissions, identities, uiddf, attribute, sliderRound, sliderCluster, sliderDate, hover_data, name = "2"):
+def report_2(plotIDdf, permissions, uiddf, attribute, sliderRound, sliderCluster, sliderDate, hover_data, reportName):
 
     '''
     Report on the clusters that are currently observable in the data based on the value of the sliders. 
@@ -628,8 +649,6 @@ def report_2(df, permissions, identities, uiddf, attribute, sliderRound, sliderC
         Add the core functionality of this into the metric object
     '''
 
-    timeInfo = strftime("%Y%m%d.%H%M", localtime())
-    reportPath = f"{os.path.expanduser('~')}\\Downloads\\Report_{name}_{timeInfo}.xlsx"
     wb = Workbook()
     del wb["Sheet"]
     # excelExport = pd.ExcelWriter(reportPath)
@@ -649,12 +668,12 @@ def report_2(df, permissions, identities, uiddf, attribute, sliderRound, sliderC
     rowNo = np.array(5)   
 
     aggDict = aggDict = {hd: lambda x: list(set(x))[0] if len(set([str(n) for n in x]))==1 else x for hd in hover_data if hd != attribute}
-    pos = Metrics(df, permissions, identities, uiddf, attribute, sliderDate)
-    dfMod = pos.mdsResult
-    dfMod = df[df["_DateTime"] == df["_DateTime"].unique()[sliderDate]].reset_index(drop=True)
+    pos = Metrics(plotIDdf, permissions, uiddf, attribute, sliderDate)
+    dfMod = pos.plottedIdentities
+    dfMod = plotIDdf[plotIDdf["_DateTime"] == plotIDdf["_DateTime"].unique()[sliderDate]].reset_index(drop=True)
     dfPos = clusterData(dfMod, uiddf, attribute, sliderRound, aggDict)
     dfPos = dfPos.set_index("_ClusterID")
-    dfClusters = getClusterLimit(dfPos, attribute, sliderCluster)
+    dfClusters, _ = getClusterLimit(dfPos, attribute, sliderCluster)
     clusterNames = sorted(dfClusters.index)
     clusterCount = [int(dfPos.loc[c]["_Count"]) for c in clusterNames]
     dfAggregate = pd.DataFrame(None, columns=clusterNames)
@@ -667,7 +686,7 @@ def report_2(df, permissions, identities, uiddf, attribute, sliderRound, sliderC
         
         dfAggregate[clid] = pos.permissions.loc[[(i, pos.specificTime) for i in uids]].sum(0)/len(uids)
 
-    # sort the aggregate df by the order of the number of identities which have the permissions 
+    # sort the aggregate plotIDdf by the order of the number of identities which have the permissions 
     # (highest to lowest)
     permissionOrder = pos.permissions.loc[(slice(None), pos.specificTime), :].sum(0).sort_values(ascending = False)
     dfAggregate = dfAggregate.reindex(permissionOrder.index)
@@ -779,7 +798,17 @@ def report_2(df, permissions, identities, uiddf, attribute, sliderRound, sliderC
             addToReport(wsAttrAnalysis, [idx] + [0 if d == 0 else np.clip(np.round(d, 2), 0.01, np.inf) for d in dfag], rowNo)
         rowNo += 1
 
+    timeInfo = strftime("%Y%m%d.%H%M", localtime())
+    reportPath = f"{os.path.expanduser('~')}\\Downloads\\{reportName}_{timeInfo}.xlsx"
     wb.save(filename = reportPath)
+
+def report_3(plotIDdf, permissions, uiddf, attribute, hover_data, reportName):
+
+    '''
+    Report on the trend of identity permissions within each element
+    '''
+
+    pass
 
 if __name__ == "__main__":
 
