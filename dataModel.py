@@ -1,12 +1,12 @@
 import numpy as np
 import pandas as pd
-from sklearn import manifold
 from glob import glob
 from datetime import datetime
 import os
 from dashboard import launchApp
 from utilities import *
 from hashlib import sha256  
+from pandas.util import hash_pandas_object as hash_pd
 
 # NOTE this has been set to turn off unnecessary warnings regarding a df modification in the 
 # plotMDS function
@@ -100,7 +100,7 @@ class DataModel(object):
 
         return processingType
 
-    def processData(self, recalculate = True, dims = 3):
+    def processData(self, forceRecalculate = True, dims = 3):
 
         '''
         Calculate the MDS of the information provided
@@ -127,10 +127,9 @@ class DataModel(object):
             print("     Impossible dimensions inputted")
             return
 
-        # Use the hashed value of all path info to find the specific info if it exists
+        # Use the hashed value of all data frame info
         # NOTE just using the last 8 values rather than the whole thing
-        fullPath = str(self.identityPath) + str(self.permissionPath) + str(self.privilegedPath)
-        self.hashValue = sha256(fullPath.encode()).hexdigest()[-8:]
+        self.hashValue = sha256(np.r_[hash_pd(self.identityData, index=True).values, hash_pd(self.rawPermissionData, index=True).values]).hexdigest()[-8:]
 
         # attribute data requires the category information as well
         if "Attr" in self.processingType: 
@@ -145,7 +144,7 @@ class DataModel(object):
 
         # if either forced to recalculate or no relevant files found, recalculate the MDS, 
         # else load the most recently created relevant file
-        if recalculate or len(csvFiles) == 0:
+        if forceRecalculate or len(csvFiles) == 0:
 
             print("     Recalculation beginning")
             self.calculateMDS()
@@ -193,7 +192,7 @@ class DataModel(object):
                 # match for identity extracts with the closest in time to the entitlement extract
                 # NOTE a tolerance of a week, tolerance = 604800
                 posdf = pd.merge_asof(entitleExtract, identityExtract, on = "_DateTime", left_by=self.joinKeys["permission"], right_by=self.joinKeys['identity'], direction="nearest")
-                posdf = posdf.drop(self.joinKeys["permission"])     # Keep just the uid from the identity dataframe
+                # posdf = posdf.drop(self.joinKeys["permission"])     # Keep just the uid from the identity dataframe
             else:
             
                 posdf = pd.merge(entitleExtract, identityExtract, left_on=self.joinKeys['permission'])
