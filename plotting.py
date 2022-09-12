@@ -276,7 +276,7 @@ def clusterIdentities(dfIDIncl : pd.DataFrame, dfIDExcl : pd.DataFrame, uidAttr 
 
     return fig, plotTitle
 
-def plotIdentities(dfIDIncl, uidAttr, attribute, hover_data, sliderDateValue):
+def plotIdentities(dfIDIncl, dfIDExcl, uidAttr, attribute, hover_data, sliderDateValue):
 
     '''
     Plot the current time specified data but scale the dots to represent the relative number of identities
@@ -303,20 +303,66 @@ def plotIdentities(dfIDIncl, uidAttr, attribute, hover_data, sliderDateValue):
 
     print(f"     Plotting data with 3D plotting for {attribute}")
 
-    dfTime = dfIDIncl[dfIDIncl["_DateTime"] == dfIDIncl["_DateTime"].unique()[sliderDateValue]]
-    dfTime = dfTime.sort_values(attribute)
+    dfTimeIncl = dfIDIncl[dfIDIncl["_DateTime"] == dfIDIncl["_DateTime"].unique()[sliderDateValue]]
+
+    if len(dfIDExcl) > 0:
+
+        # add the excluded identities trace
+        dfTimeExcl = dfIDExcl[dfIDExcl["_DateTime"] == dfIDExcl["_DateTime"].unique()[sliderDateValue]]
+
+    else:
+        dfTimeExcl = pd.DataFrame(None, columns=dfIDExcl.columns)
 
     allTimesFormat = dfIDIncl["_PermissionDateTime"].unique()
 
-    fig = px.scatter_3d(dfTime, 
-            x="Dim0", 
-            y="Dim1", 
-            z="Dim2",
-            hover_data = hover_data,
-            color = attribute, 
-            hover_name = uidAttr,  
-            )
+    # create the colour dictionary to be used for all visualisation
+    colourDict = {}
+    for n_c, c in enumerate(sorted(np.r_[dfIDIncl[attribute].unique(), dfIDExcl[attribute].unique()])):
 
-    plotTitle = f"Plotting {len(dfTime)} identities colored based on {attribute} with full identity information from {allTimesFormat[sliderDateValue]}"
+        colourDict[str(c)] = colours.Plotly[n_c%len(colours.Plotly)]
+
+    # Remove the uid from the hoverdata so that it has to be explicitly included
+    hover_data.remove(uidAttr)
+    fig = px.scatter_3d(pd.DataFrame(None))
+
+    # the clusters to include
+    for ele in sorted(dfTimeIncl[attribute].unique()):
+        dfPosInclAttr = dfTimeIncl[dfTimeIncl[attribute] == ele]
+        fig.add_scatter3d(
+            connectgaps=False,
+            customdata=dfPosInclAttr[[uidAttr]+hover_data],
+            x=dfPosInclAttr["Dim0"], 
+            y=dfPosInclAttr["Dim1"], 
+            z=dfPosInclAttr["Dim2"],
+            mode = "markers",
+            marker=dict(color=colourDict[ele], opacity=1),      # include has an opacity of 1
+            hovertemplate = f"<b>{uidAttr}: %{'{customdata[0]}'}</b><br><br>" + "<br>".join([f"{h}: %{'{customdata['+str(n)+']}'}" for n, h in enumerate(hover_data, 1)]),
+            legendgroup=ele,
+            name=ele,
+            hoverlabel = dict(namelength=0)
+            )
+    
+    if len(dfTimeExcl) > 0:
+        
+        # the clusters to include
+        for ele in sorted(dfTimeExcl[attribute].unique()):
+            dfPosInclAttr = dfTimeExcl[dfTimeExcl[attribute] == ele]
+            fig.add_scatter3d(
+                connectgaps=False,
+                customdata=dfPosInclAttr[[uidAttr]+hover_data],
+                x=dfPosInclAttr["Dim0"], 
+                y=dfPosInclAttr["Dim1"], 
+                z=dfPosInclAttr["Dim2"],
+                mode = "markers",
+                marker=dict(color=colourDict[ele], opacity=0.4),      # exclude has an opacity of 0.4
+                hovertemplate = f"<b>{uidAttr}: %{'{customdata[0]}'}</b><br><br>" + "<br>".join([f"{h}: %{'{customdata['+str(n)+']}'}" for n, h in enumerate(hover_data, 1)]),
+                legendgroup=f"{ele} Excluded",
+                name=f"{ele} Excluded",
+                hoverlabel = dict(namelength=0)
+                )
+
+
+    fig.data = fig.data[1:]
+    plotTitle = f"Plotting {len(dfIDIncl)} identities colored based on {attribute} with full identity information from {allTimesFormat[sliderDateValue]}"
 
     return fig, plotTitle
