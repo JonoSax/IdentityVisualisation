@@ -298,11 +298,20 @@ def createInteractivePlot(dataModel : object):
             # toggle switch to change between tracking points and viewing historical data
             html.Div([
                 daq.ToggleSwitch(
-                    id='toggle-in',
+                    id='toggle-timeseries',
                     disabled = not "_PermissionDateTime" in hover_data,
                     value=False, 
                 ), 
-                html.Div(id='toggle-out'),
+                html.Div(id='toggle-timeseries-out'),
+                ], style={"margin-left": "15px", "margin-top": "15px", "display": "inline-block"}
+                ),
+            
+            html.Div([
+                daq.ToggleSwitch(
+                    id='toggle-hoverinfo',
+                    value=False, 
+                ), 
+                html.Div(id='toggle-hoverinfo-out'),
                 ], style={"margin-left": "15px", "margin-top": "15px", "display": "inline-block"}
             ),
             
@@ -371,6 +380,7 @@ def createInteractivePlot(dataModel : object):
                 }),
 
         # data being transferred to call back functions
+        # NOTE think about using @cache.memoize() to store some of these bigger dataframes to reduce the compute bottleneck? https://dash.plotly.com/sharing-data-between-callbacks
         dcc.Store(data = df[selectedData].to_json(orient='split'), id = "identityRepresentations"),
         dcc.Store(data = dataModel.rawPermissionData.astype(np.int8).to_json(orient='split'), id = "rawPermissionData"),
         dcc.Store(data = dataModel.identityData.to_json(orient='split'), id = "identityData"),
@@ -379,7 +389,7 @@ def createInteractivePlot(dataModel : object):
         dcc.Store(data = hover_data, id = "hover_data"),
         dcc.Store(data = "info", id = "info"),
         dcc.Store(data = None, id = "identitiesPlotted"),           # store the plotted identity data 
-
+        dcc.Store(data = None, id = "figureLayout"),
         html.Div(id='output'), 
     ])
 
@@ -390,14 +400,16 @@ def createInteractivePlot(dataModel : object):
 @app.callback(
     Output('plotly_figure', 'figure'),
     Output('identitiesPlotted', 'data'),
-    Input('plotly_figure', 'figure'),
-    Input('identityRepresentations', 'data'),
+    # Input('plotly_figure', 'figure'),
+    State("plotly_figure", "relayoutData"),
+    State('identityRepresentations', 'data'),
     Input('selectedDropDown', 'value'),
     Input('selectableDropDownExclude', 'value'),
     Input('selectableDropDownInclude', 'value'),
     Input('uidAttr', 'data'), 
     Input('hover_data', 'data'), 
-    Input('toggle-in', 'value'), 
+    Input('toggle-timeseries', 'value'), 
+    Input('toggle-hoverinfo', 'value'), 
     Input('slider-dates', 'value'), 
     Input('slider-rounding', 'value'),
     Input('slider-clustering', 'value'),
@@ -405,7 +417,7 @@ def createInteractivePlot(dataModel : object):
     Input('slider-yAxis', 'value'),
     Input('slider-zAxis', 'value')
     )
-def update_graph(fig, dfIDjson, attribute, elementsExclude, elementsInclude, uidAttr, hover_data, trackingToggle, sliderDateValue, sliderRoundValue, sliderClusterValue, sliderXScale, sliderYScale, sliderZScale):
+def update_graph(figLayout, dfIDjson, attribute, elementsExclude, elementsInclude, uidAttr, hover_data, trackingToggle, hoverinfoToggle, sliderDateValue, sliderRoundValue, sliderClusterValue, sliderXScale, sliderYScale, sliderZScale):
 
     '''
     Take in the raw data and selected information and create visualisation
@@ -442,9 +454,6 @@ def update_graph(fig, dfIDjson, attribute, elementsExclude, elementsInclude, uid
     if len(dfIDIncl) == 0:
         return px.scatter_3d(pd.DataFrame(None)), None
 
-    allTimes = dfID["_DateTime"].unique()
-    allTimesFormat = dfID["_PermissionDateTime"].unique()
-
     # remove the count info to match to the data frame
     plotTitle = f"{dims}D visualising {attribute} for {len(dfID)} data points"
 
@@ -461,7 +470,7 @@ def update_graph(fig, dfIDjson, attribute, elementsExclude, elementsInclude, uid
     # ---------- Plot the raw identity data ----------
     else:
 
-        fig, plotTitle = plotIdentities(dfIDIncl, uidAttr, attribute, hover_data, sliderDateValue)
+        fig, plotTitle = plotIdentities(dfIDIncl, dfIDExcl,uidAttr, attribute, hover_data, sliderDateValue)
 
     # ---------- Scale and format the plot ----------
 
@@ -486,7 +495,17 @@ def update_graph(fig, dfIDjson, attribute, elementsExclude, elementsInclude, uid
 
     # remove information about the position in the plot because this is not useful
     for f in fig.data:
-        if f.hovertemplate is not None:
+
+        # if the hoverinfotoggle is true, remove all hovering info 
+        if hoverinfoToggle:
+            f.hovertemplate = None
+            f.hoverinfo = 'none'
+            fig.layout.scene.xaxis.showspikes = False
+            fig.layout.scene.yaxis.showspikes = False
+            fig.layout.scene.zaxis.showspikes = False
+
+        # if there is a hovertemplate, remove frivilous info
+        elif f.hovertemplate is not None:
 
             # remove the co-ordinate info (not useful)
             f.hovertemplate = f.hovertemplate.replace("Dim0=%{x}<br>Dim1=%{y}<br>Dim2=%{z}<br>", "")
@@ -498,6 +517,10 @@ def update_graph(fig, dfIDjson, attribute, elementsExclude, elementsInclude, uid
                 fCol = f"{f.hovertemplate[fStart:fEnd]}<br>"
                 f.hovertemplate = f.hovertemplate.replace(fCol, "")
 
+    # re-load the figure with the previous camera angle 
+    if figLayout is not None:
+        fig.layout.scene.camera = figLayout.get('scene.camera')
+    
     print("     Plot updated\n")
     return fig, dfIDIncl.to_json(orient='split')
 
@@ -696,23 +719,26 @@ def save_file(click, tab_data, filename):
 
 # enable/disable the toggle and sliders
 @app.callback(
-    Output('toggle-out', 'children'),
+    Output('toggle-timeseries-out', 'children'),
+    Output('toggle-hoverinfo-out', 'children'),
     Output('slider-dates', 'disabled'),
     Output('slider-rounding', 'disabled'),
     Output('slider-clustering', 'disabled'),
-    Input('toggle-in', 'value'),
+    Input('toggle-timeseries', 'value'),
+    Input('toggle-hoverinfo', 'value'),
     Input('slider-rounding', 'value')
 )
-def update_output(toggleValue, sliderRoundValue):
+def update_output(toggleTimeSeriesValue, toggleHoverinfoValue, sliderRoundValue):
 
     # default values of all sliders/toggles
-    toggleOut = "Date of extract"
+    toggleTimeSeries = "Date of extract"
+    toggleHoverinfo = "Hoverinfo disabled"
     sliderDateDisabled = False
     sliderRoundDisabled = False
     sliderClusterDisabled = False
 
-    if toggleValue:
-        toggleOut = "Tracking data"
+    if toggleTimeSeriesValue:
+        toggleTimeSeries = "Tracking data"
         sliderDateDisabled = True
         sliderRoundDisabled = True
         sliderClusterDisabled = True
@@ -720,7 +746,10 @@ def update_output(toggleValue, sliderRoundValue):
     if sliderRoundValue == 0:
         sliderClusterDisabled = True
 
-    return toggleOut, sliderDateDisabled, sliderRoundDisabled, sliderClusterDisabled
+    if not toggleHoverinfoValue:
+        toggleHoverinfo = "Hoverinfo enabled"
+
+    return toggleTimeSeries, toggleHoverinfo, sliderDateDisabled, sliderRoundDisabled, sliderClusterDisabled
 
 @app.callback(
     Output('report_1', 'children'),
@@ -733,7 +762,7 @@ def update_output(toggleValue, sliderRoundValue):
     Output('report_5', 'disabled'),
     Input('slider-rounding', 'value'),
     Input('slider-clustering', 'value'),
-    Input('toggle-in', 'value'), 
+    Input('toggle-timeseries', 'value'), 
 )
 def update_buttons(sliderRounding, sliderClustering, trackingToggle):
 
