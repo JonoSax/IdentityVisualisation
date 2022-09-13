@@ -2,19 +2,22 @@ import numpy as np
 from sklearn import manifold
 import pandas as pd
 from openpyxl import Workbook
+
 # from numba import jit
 
 # @jit
-def mdsCalculation(permissionData: pd.DataFrame, privilegedData = None, dims = 3):
+def mdsCalculation(
+    permissionData: pd.DataFrame, privilegedData=None, roleData=None, dims=3
+):
 
-    '''
+    """
     Perform the Muli-dimensional Scaling of the data
 
     Input
-    ---- 
-    
+    ----
+
     permissionData : pd.DataFrame
-        A pandas dataframe containing the permission data where 1 indicates the 
+        A pandas dataframe containing the permission data where 1 indicates the
         identity has the permission and 0 indicates the id doesn't have it:
                 Perm0   Perm1   Permn   ...
         ID0     0       1       0
@@ -23,8 +26,8 @@ def mdsCalculation(permissionData: pd.DataFrame, privilegedData = None, dims = 3
         ...
 
     privilegedData : pd.DataFrame
-        A pandas dataframe containing two columns, the name of the permission and 
-        the relative "privilege" of this compared to a standard permissions. 
+        A pandas dataframe containing two columns, the name of the permission and
+        the relative "privilege" of this compared to a standard permissions.
 
         NOTE Relative privilege should be on a scale of 2-5 where 1 is the default
         value for a permission existing. Higher values can distort the scaling process
@@ -34,16 +37,18 @@ def mdsCalculation(permissionData: pd.DataFrame, privilegedData = None, dims = 3
         Perm2           4
         Permn           x
 
-    '''
+    """
 
     # apply the impact of privileged permissions
-    # NOTE applying privileged permissions significantly increases the computational cost of the similarityPermissionData
-    # calculation
+    # NOTE normalising the positions because a dotproduct for values > 1 is significantly slower than values <= 1
     if privilegedData is not None:
-        permissionData[privilegedData["Permission"]] *= np.array(privilegedData["RelativePrivilege"].astype(int))
-    
+        privilegeArray = np.array(privilegedData["RelativePrivilege"].astype(int))
+        permissionData[privilegedData["Permission"]] *= (
+            privilegeArray / privilegeArray.max()
+        )
+
     # compute the relative similarity of each data point
-    '''
+    """
     Use float32 as once again it balances performance and accuracy. 
     NOTE that for very large arrays (1000x1000+), using int or float16 often don't complete in a
     reasonable time. 
@@ -69,49 +74,50 @@ def mdsCalculation(permissionData: pd.DataFrame, privilegedData = None, dims = 3
 
     Summary: f32 is a 20-300+x speed up on other data types and for larger multiplications, 
     is faster than f64. Given the negligible accuracy change f32 is used.
-    '''
+    """
     x = permissionData.to_numpy().astype(np.float32)
-    similarityPermissionData = np.dot(x, x.T)/np.sum(x, 1)
+    similarityPermissionData = np.dot(x, x.T) / np.sum(x, 1)
 
     dissimilarity = 1 - similarityPermissionData * similarityPermissionData.transpose()
 
     # perform dimensionality reduction
     print("     Starting mds fit")
 
-    mds = manifold.MDS( 
-        n_components=dims, 
+    mds = manifold.MDS(
+        n_components=dims,
         max_iter=1000,
         eps=1e-3,
         random_state=np.random.RandomState(seed=3),
         dissimilarity="precomputed",
-        n_jobs=4, 
-        verbose=2, 
-        metric = True
+        n_jobs=4,
+        verbose=2,
+        metric=True,
     )
 
     isomap = manifold.Isomap(
-        n_neighbors = 10,
-        n_components = 3,
+        n_neighbors=10,
+        n_components=3,
     )
 
-    '''
+    """
     Enforce the dissimilarities to float32 as a compromise of accuracy and speed
     For a 350 x 350 matrix:
     d64 = 7.942158341407776 sec per iteration
     d32  = 5.387955260276795 sec
     d16 = 6.188236093521118 sec
-    '''
+    """
     # results = mds.fit(dissimilarity.astype(np.float32), )
     # pos = results.embedding_
     # NOTE memory issue on windows for large array size: https://stackoverflow.com/questions/57507832/unable-to-allocate-array-with-shape-and-data-type
     pos = mds.fit_transform(dissimilarity)
     # pos = isomap.fit(dissimilarity).embedding_
 
-    return(pos)
+    return pos
 
-def clusterData(df, uidAttr, attribute, sliderRoundValue, dictRules = None):
 
-    '''
+def clusterData(df, uidAttr, attribute, sliderRoundValue, dictRules=None):
+
+    """
     Cluster the data based on all identities position environment and an atribue
 
     Input
@@ -130,51 +136,67 @@ def clusterData(df, uidAttr, attribute, sliderRoundValue, dictRules = None):
 
     dictRules : dict
         Dictionary of rules corresponding to the columns in the df to process the final aggregated dataframe
-    '''
+    """
 
     dfMod = df.copy()
-    dfMod[["Dim0r", "Dim1r", "Dim2r"]] = dfMod[["Dim0", "Dim1", "Dim2"]].apply(lambda x: np.round(sliderRoundValue**2 * np.round(x/sliderRoundValue**2), 2))
-    dfMod["_Count"] = dfMod.groupby(["Dim0r", "Dim1r", "Dim2r", attribute])[[uidAttr]].transform('count')
+    dfMod[["Dim0r", "Dim1r", "Dim2r"]] = dfMod[["Dim0", "Dim1", "Dim2"]].apply(
+        lambda x: np.round(
+            sliderRoundValue**2 * np.round(x / sliderRoundValue**2), 2
+        )
+    )
+    dfMod["_Count"] = dfMod.groupby(["Dim0r", "Dim1r", "Dim2r", attribute])[
+        [uidAttr]
+    ].transform("count")
     dfUniqID = dfMod[dfMod["_Count"] == 1]
 
     # Create the aggregation dictionary
     aggDict = {
-    "Dim0": "median",
-    "Dim1": "median", 
-    "Dim2": "median",
-    "_Count": "median",
+        "Dim0": "median",
+        "Dim1": "median",
+        "Dim2": "median",
+        "_Count": "median",
     }
     if dictRules is not None:
         aggDict.update(dictRules)
 
-    dfCluster = dfMod[dfMod["_Count"] > 1].groupby(["Dim0r", "Dim1r", "Dim2r", attribute]).agg(aggDict).reset_index()
+    dfCluster = (
+        dfMod[dfMod["_Count"] > 1]
+        .groupby(["Dim0r", "Dim1r", "Dim2r", attribute])
+        .agg(aggDict)
+        .reset_index()
+    )
     dfPos = pd.concat([dfUniqID, dfCluster])
-    dfPos = dfPos.sort_values(attribute).reset_index(drop = True)
+    dfPos = dfPos.sort_values(attribute).reset_index(drop=True)
 
     # add cluster names based on the size of the cluster and the attribute name
-    clusterID = dfPos[["_Count", attribute]].sort_values(by = ["_Count", attribute], ascending=[False, True]).reset_index()
-    
+    clusterID = (
+        dfPos[["_Count", attribute]]
+        .sort_values(by=["_Count", attribute], ascending=[False, True])
+        .reset_index()
+    )
+
     cStore = []
     for c, _ in clusterID.sort_values("index").iterrows():
         c = str(c)
-        while len(c)<len(str(clusterID.__len__())):
+        while len(c) < len(str(clusterID.__len__())):
             c = "0" + str(c)
         cStore.append(f"Cluster {c}")
-    
+
     dfPos["_ClusterID"] = cStore
-        
-    return(dfPos)
 
-def addToReport(ws, content, rowNo = None, colNo = None, colStart = 1, rowStart = 1):
+    return dfPos
 
-    '''
+
+def addToReport(ws, content, rowNo=None, colNo=None, colStart=1, rowStart=1):
+
+    """
     Add a rowm or columns to an openpyxl worksheet
 
     If you specify a rowNo then it will automatically write along columns (from colStart)
     If you specify a colNo then it will automatically write down rows (from rowStart)
 
     Remember this is excel not python so indexs start at 1 not 0!!!
-    '''
+    """
 
     if rowNo is not None:
         for n, con in enumerate(content, colStart):
@@ -186,18 +208,19 @@ def addToReport(ws, content, rowNo = None, colNo = None, colStart = 1, rowStart 
             ws.cell(row=n, column=int(colNo)).value = con
         colNo += 1
 
+
 def getClusterLimit(dfPos, attribute, sliderClusterValue):
 
-    '''
-    Select clusters with only a threshold number of identities based on the maximum 
+    """
+    Select clusters with only a threshold number of identities based on the maximum
     size of the clusters for any given element per attribute
-    '''
+    """
 
-    dfPosSelect = None 
+    dfPosSelect = None
     dfPosUnselect = None
     for attr in dfPos[attribute].unique():
         dfTemp = dfPos[dfPos[attribute] == attr]
-        minClusteringSize = int(sliderClusterValue * dfTemp["_Count"].max())-1
+        minClusteringSize = np.ceil(sliderClusterValue * dfTemp["_Count"].max()) - 1
         dfTempIncl = dfTemp[dfTemp["_Count"] > minClusteringSize]
         dfTempExcl = dfTemp[dfTemp["_Count"] <= minClusteringSize]
         if dfPosSelect is None:
@@ -209,9 +232,10 @@ def getClusterLimit(dfPos, attribute, sliderClusterValue):
 
     return dfPosSelect, dfPosUnselect
 
-def filterIdentityDataFrame(dfID, uid, includeInfo = [], excludeInfo = []):
 
-    '''
+def filterIdentityDataFrame(dfID, uid, includeInfo=[], excludeInfo=[]):
+
+    """
     From an identity data frame, filter based on multiple columns and specific conditions
 
     Inputs
@@ -222,11 +246,11 @@ def filterIdentityDataFrame(dfID, uid, includeInfo = [], excludeInfo = []):
     includeInfo/excludeInfo : list of lists
         Contains the column to search for the information and the specific value within that column
 
-    Priorities: 
+    Priorities:
 
         If there is a conflict between the include/excludes the include will take priority
 
-    '''
+    """
 
     # include data dictionary
     includeDict = {}
@@ -236,7 +260,7 @@ def filterIdentityDataFrame(dfID, uid, includeInfo = [], excludeInfo = []):
         else:
             includeDict[attr].append(ele)
 
-    # exclude data dictionary 
+    # exclude data dictionary
     excludeDict = {}
     for attr, ele in excludeInfo:
         if excludeDict.get(attr) is None:
@@ -247,21 +271,23 @@ def filterIdentityDataFrame(dfID, uid, includeInfo = [], excludeInfo = []):
     if includeInfo != [] and excludeInfo != []:
         dfLogic = ~[
             np.all([~dfID[attr].isin(elems) for attr, elems in includeDict.items()], 0)
-            |
-            np.all([dfID[attr].isin(elems) for attr, elems in excludeDict.items()], 0)
+            | np.all([dfID[attr].isin(elems) for attr, elems in excludeDict.items()], 0)
         ][0]
-            
 
     elif includeInfo != []:
-        dfLogic = np.all([dfID[attr].isin(elems) for attr, elems in includeDict.items()], 0)
+        dfLogic = np.all(
+            [dfID[attr].isin(elems) for attr, elems in includeDict.items()], 0
+        )
 
     elif excludeInfo != []:
-        dfLogic = np.all([~dfID[attr].isin(elems) for attr, elems in excludeDict.items()], 0)
-        
+        dfLogic = np.all(
+            [~dfID[attr].isin(elems) for attr, elems in excludeDict.items()], 0
+        )
+
     else:
         dfLogic = np.array([True] * len(dfID))
 
     include = dfID[dfLogic]
     exclude = dfID[~dfLogic]
-    
+
     return include, exclude
