@@ -12,7 +12,7 @@ from datetime import datetime
 from utilities import *
 
 
-def trackElements(
+def track_elements(
     dfIDIncl: pd.DataFrame, uidAttr: str, attribute: str, hover_data: list
 ):
 
@@ -156,7 +156,7 @@ def trackElements(
     return fig, plotTitle
 
 
-def clusterIdentities(
+def cluster_identities(
     dfIDIncl: pd.DataFrame,
     dfIDExcl: pd.DataFrame,
     uidAttr: str,
@@ -345,7 +345,9 @@ def clusterIdentities(
     return fig, plotTitle
 
 
-def plotIdentities(dfIDIncl, dfIDExcl, uidAttr, attribute, hover_data, sliderDateValue):
+def plot_identities(
+    dfIDIncl, dfIDExcl, uidAttr, attribute, hover_data, sliderDateValue
+):
 
     """
     Plot the current time specified data but scale the dots to represent the relative number of identities
@@ -456,3 +458,27 @@ def plotIdentities(dfIDIncl, dfIDExcl, uidAttr, attribute, hover_data, sliderDat
     plotTitle = f"Plotting {len(dfTimeIncl)} identities colored based on {attribute} with full identity information from {allTimesFormat[sliderDateValue]}"
 
     return fig, plotTitle
+
+
+def add_roles(fig: go, dfRole: pd.DataFrame, uidAttr: str):
+
+    dfRoleInfo = dfRole[[uidAttr, "Dim0", "Dim1", "Dim2"]]
+
+    for role in sorted(dfRoleInfo[uidAttr].unique()):
+
+        dfRole = dfRoleInfo[dfRoleInfo[uidAttr] == role]
+
+        fig.add_scatter3d(
+            customdata=dfRoleInfo[uidAttr],
+            x=dfRole["Dim0"],
+            y=dfRole["Dim1"],
+            z=dfRole["Dim2"],
+            mode="markers",
+            marker=dict(opacity=1, symbol="diamond", size=10),
+            hovertemplate=f"<b>Role: {role}</b><br>",
+            legendgroup=role,
+            name=role,
+            hoverlabel=dict(namelength=0),
+        )
+
+    return fig
