@@ -53,11 +53,11 @@ class DataModel(object):
         self.categories = None
         self.categoriesHeader = None
 
-        self.rawPermissionData = None
-        self.privilegedData = None
-        self.roleData = None
-        self.identityData = None
-        self.mdsResults = None
+        self.rawPermissionData = pd.DataFrame(None)
+        self.privilegedData = pd.DataFrame(None)
+        self.roleData = pd.DataFrame(None)
+        self.identityData = pd.DataFrame(None)
+        self.mdsResults = pd.DataFrame(None)
         self.processingType = "identity"
         self.joinKeys = {"identity": None, "permission": None}
         self.permissionValue = None
@@ -94,7 +94,7 @@ class DataModel(object):
         Take the role data and process into the necesary array for calculations
         """
 
-        self.roleData.pivot_table(
+        self.roleData = self.roleData.pivot_table(
             values=self.roleData.columns[0],
             columns="Permission",
             index="RoleAssignment",
@@ -102,7 +102,10 @@ class DataModel(object):
             fill_value=0,
         )
 
-        pass
+        # set the categories of the roles as -1. This can never be set by the timing because you cannot get a negative time!
+        self.categories = np.r_[
+            self.categories, [[r, "-1"] for r in self.roleData.index]
+        ]
 
     def processData(self, forceRecalculate=True, dims=3):
 
@@ -131,12 +134,17 @@ class DataModel(object):
             print("     Impossible dimensions inputted")
             return
 
+        if len(self.roleData) > 0:
+            self.processRoles()
+
         # Use the hashed value of all data frame info
         # NOTE just using the last 8 values rather than the whole thing
         self.hashValue = sha256(
             np.r_[
                 hash_pd(self.identityData, index=True).values,
                 hash_pd(self.rawPermissionData, index=True).values,
+                hash_pd(self.privilegedData, index=True).values,
+                hash_pd(self.roleData, index=True).values,
             ]
         ).hexdigest()[-8:]
 
@@ -217,7 +225,7 @@ class DataModel(object):
                         "%m/%d/%Y, %H:%M:%S"
                     )
                 )
-                # match for identity extracts with the closest in time to the entitlement extract
+                # match for identity extracts with the closest in time to the entitlement extract. If there is no identity matched then the individual who is modelled will still be included (this is a left join), however they will have not associated identity data.
                 # NOTE a tolerance of a week, tolerance = 604800
                 posdf = pd.merge_asof(
                     entitleExtract,
