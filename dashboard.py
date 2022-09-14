@@ -57,21 +57,13 @@ def createInteractivePlot(dataModel: object):
     selectedData = [
         d
         for d in sorted(list(df.columns))
-        if d.lower().find("unnamed") == -1
-        and d != dataModel.joinKeys["permission"]  # removed the unnamed columns
-    ]  # remove the permission uid
+        if d.lower().find("unnamed") == -1  # removed the unnamed columns
+        and d != dataModel.joinKeys["identity"]  # remove the identity uid
+    ]
 
     # Specify what data from the dataframe will be included in the hovertext
     hover_data = [s for s in selectedData if s.lower().find("dim") == -1]
     # hover_data.remove("timeUnix")
-
-    r = 0.2  # The extra bit to add to the graphs for scaling
-    xMinR = df["Dim0"].min() - r
-    xMaxR = df["Dim0"].max() + r
-    yMinR = df["Dim1"].min() - r
-    yMaxR = df["Dim1"].max() + r
-    zMinR = df["Dim2"].min() - r
-    zMaxR = df["Dim2"].max() + r
 
     marks = {}
     # convert the datetime object of the permission extract into a human readable format
@@ -82,6 +74,10 @@ def createInteractivePlot(dataModel: object):
         df = df.sort_values(
             ["_DateTime", dataModel.joinKeys["identity"]], ascending=True
         )
+
+        # role information is when the _DateTime == -1
+        dfRoles = df.copy()[df["_DateTime"] == -1]
+        df = df[df["_DateTime"] > 0]
 
         # convert the datetime object into a human readable time
         df["_PermissionDateTime"] = df["_DateTime"].apply(
@@ -162,80 +158,6 @@ def createInteractivePlot(dataModel: object):
             # main figure
             html.Div(
                 [
-                    # axis control sliders
-                    html.Div(
-                        [
-                            html.Label("Axis control"),
-                            html.Label("Dim0, Dim1, Dim2"),
-                            # range slider for x axis
-                            html.Div(
-                                [
-                                    dcc.RangeSlider(
-                                        xMinR,
-                                        xMaxR,
-                                        value=[xMinR, xMaxR],
-                                        id="slider-xAxis",
-                                        disabled=False,
-                                        marks=None,
-                                        vertical=True,
-                                        allowCross=False,
-                                        tooltip={
-                                            "placement": "bottom",
-                                            "always_visible": True,
-                                        },
-                                    ),
-                                    # html.Div(id='slider-output'),
-                                ],
-                                style={
-                                    "margin-left": "15px",
-                                    "display": "inline-block",
-                                },
-                            ),
-                            # range slider for y axis
-                            html.Div(
-                                [
-                                    dcc.RangeSlider(
-                                        yMinR,
-                                        yMaxR,
-                                        value=[yMinR, yMaxR],
-                                        id="slider-yAxis",
-                                        disabled=False,
-                                        marks=None,
-                                        vertical=True,
-                                        allowCross=False,
-                                        tooltip={
-                                            "placement": "bottom",
-                                            "always_visible": True,
-                                        },
-                                    ),
-                                    # html.Div(id='slider-output'),
-                                ],
-                                style={"display": "inline-block"},
-                            ),
-                            # range slider for z axis
-                            html.Div(
-                                [
-                                    dcc.RangeSlider(
-                                        zMinR,
-                                        zMaxR,
-                                        value=[zMinR, zMaxR],
-                                        id="slider-zAxis",
-                                        disabled=False,
-                                        marks=None,
-                                        vertical=True,
-                                        allowCross=False,
-                                        tooltip={
-                                            "placement": "bottom",
-                                            "always_visible": True,
-                                        },
-                                    ),
-                                    # html.Div(id='slider-output'),
-                                ],
-                                style={"display": "inline-block"},
-                            ),
-                        ],
-                        style={"display": "inline-block"},
-                    ),
                     # plotly figure
                     html.Div(
                         [dcc.Graph(id="plotly_figure")],
@@ -470,7 +392,8 @@ def createInteractivePlot(dataModel: object):
             dcc.Store(
                 data=dataModel.identityData.to_json(orient="split"), id="identityData"
             ),
-            dcc.Store(data=dataModel.joinKeys["identity"], id="uidAttr"),
+            dcc.Store(data=dfRoles.to_json(orient="table"), id="roleData"),
+            dcc.Store(data=dataModel.joinKeys["permission"], id="uidAttr"),
             dcc.Store(data=os.getpid(), id="pid"),
             dcc.Store(data=hover_data, id="hover_data"),
             dcc.Store(data="info", id="info"),
@@ -483,6 +406,10 @@ def createInteractivePlot(dataModel: object):
     )
 
     print("     Web app created")
+
+    # remove the dataModel variable to save
+    del dataModel
+
     return app
 
 
@@ -493,6 +420,7 @@ def createInteractivePlot(dataModel: object):
     # Input('plotly_figure', 'figure'),
     State("plotly_figure", "relayoutData"),
     State("identityRepresentations", "data"),
+    State("roleData", "data"),
     Input("selectedDropDown", "value"),
     Input("selectableDropDownExclude", "value"),
     Input("selectableDropDownInclude", "value"),
@@ -503,13 +431,11 @@ def createInteractivePlot(dataModel: object):
     Input("slider-dates", "value"),
     Input("slider-rounding", "value"),
     Input("slider-clustering", "value"),
-    Input("slider-xAxis", "value"),
-    Input("slider-yAxis", "value"),
-    Input("slider-zAxis", "value"),
 )
 def update_graph(
     figLayout,
     dfIDjson,
+    dfRolejson,
     attribute,
     elementsExclude,
     elementsInclude,
@@ -520,9 +446,6 @@ def update_graph(
     sliderDateValue,
     sliderRoundValue,
     sliderClusterValue,
-    sliderXScale,
-    sliderYScale,
-    sliderZScale,
 ):
 
     """
@@ -539,14 +462,12 @@ def update_graph(
         sliderDateValue: {str(sliderDateValue)},
         sliderRoundValue: {str(sliderRoundValue)},
         sliderClusterValue: {str(sliderClusterValue)},
-        sliderXScale: {str(sliderXScale)},
-        sliderYScale: {str(sliderYScale)},
-        sliderZScale: {str(sliderZScale)},
         """
     )
 
     attribute = attribute.split(":")[0]
     dfID = pd.read_json(dfIDjson, orient="split")
+    dfRole = pd.read_json(dfRolejson, orient="table")
 
     # simplify the elements exclude info list for processing by the pandas df
     includeInfo = [e.split(": ") for e in elementsInclude]
@@ -570,12 +491,12 @@ def update_graph(
     # ---------- Track attributes across the time inputs ----------
     if trackingToggle:
 
-        fig, plotTitle = trackElements(dfIDIncl, uidAttr, attribute, hover_data)
+        fig, plotTitle = track_elements(dfIDIncl, uidAttr, attribute, hover_data)
 
     #  ---------- Cluster data around reduced spatial resolution ----------
     elif sliderRoundValue > 0:
 
-        fig, plotTitle = clusterIdentities(
+        fig, plotTitle = cluster_identities(
             dfIDIncl,
             dfIDExcl,
             uidAttr,
@@ -589,16 +510,24 @@ def update_graph(
     # ---------- Plot the raw identity data ----------
     else:
 
-        fig, plotTitle = plotIdentities(
+        fig, plotTitle = plot_identities(
             dfIDIncl, dfIDExcl, uidAttr, attribute, hover_data, sliderDateValue
         )
 
+    # ---------- Plot the role data ----------
+    if len(dfRole) > 0:
+
+        fig = add_roles(fig, dfRole, uidAttr)
+        
     # ---------- Scale and format the plot ----------
 
-    # get the user selected slider values
-    xMin, xMax = sliderXScale
-    yMin, yMax = sliderYScale
-    zMin, zMax = sliderZScale
+    r = 0.2  # The extra bit to add to the graphs for scaling
+    xMin = dfID["Dim0"].min() - r
+    xMax = dfID["Dim0"].max() + r
+    yMin = dfID["Dim1"].min() - r
+    yMax = dfID["Dim1"].max() + r
+    zMin = dfID["Dim2"].min() - r
+    zMax = dfID["Dim2"].max() + r
 
     fig.update_layout(
         title="<br>".join(wrap(plotTitle, width=70)),  # set the title
@@ -697,9 +626,7 @@ def report_1(click, idPlotted, permData, uid, sliderDate, selectedAttr):
     if click and idPlotted is not None:
 
         idPlotted = pd.read_json(idPlotted, orient="split")
-        permData = pd.read_json(
-            permData, orient="table"
-        )
+        permData = pd.read_json(permData, orient="table")
         selectedAttr = selectedAttr.split(":")[0]
 
         reporting.report_1(
@@ -812,7 +739,7 @@ def report_3(click, idPlotted, permData, uid, selectedAttr, hover_data):
     Input("stop_button", "n_clicks"),
     Input("pid", "data"),
 )
-def update_exitButton(fig, click, pid):
+def update_exit_button(fig, click, pid):
     if click:
         print("\n!!----- Stopping plottng, server disconnected -----!!\n")
         fig.update
@@ -998,7 +925,7 @@ def update_buttons(sliderRounding, sliderClustering, trackingToggle):
     Input("selectableDropDownExclude", "value"),
     Input("selectableDropDownInclude", "value"),
 )
-def generateSubCategories(
+def generate_sub_categories(
     attribute,
     identitiesPlotted,
     identitiesAll,
