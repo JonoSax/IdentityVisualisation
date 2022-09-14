@@ -6,3 +6,5 @@ old/
 .vscode
 *.xls*
 __pycache__/*
+documentation/
+cache-directory/*
