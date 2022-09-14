@@ -94,6 +94,9 @@ class DataModel(object):
         Take the role data and process into the necesary array for calculations
         """
 
+        if len(self.roleData) == 0:
+            return
+
         self.roleData = self.roleData.pivot_table(
             values=self.roleData.columns[0],
             columns="Permission",
@@ -106,6 +109,32 @@ class DataModel(object):
         self.categories = np.r_[
             self.categories, [[r, "-1"] for r in self.roleData.index]
         ]
+
+    def processPrivilege(self):
+
+        """
+        Take the pivileged permission data and process it
+        """
+
+        if len(self.privilegedData) == 0:
+            return
+
+        self.privilegedData = self.privilegedData.set_index("Permission")
+
+    def hashData(self, len=8):
+
+        """
+        Create a hash value to represent the data
+        """
+
+        self.hashValue = sha256(
+            np.r_[
+                hash_pd(self.identityData, index=True).values,
+                hash_pd(self.rawPermissionData, index=True).values,
+                hash_pd(self.privilegedData, index=True).values,
+                hash_pd(self.roleData, index=True).values,
+            ]
+        ).hexdigest()[-len:]
 
     def processData(self, forceRecalculate=True, dims=3):
 
@@ -134,19 +163,9 @@ class DataModel(object):
             print("     Impossible dimensions inputted")
             return
 
-        if len(self.roleData) > 0:
-            self.processRoles()
-
-        # Use the hashed value of all data frame info
-        # NOTE just using the last 8 values rather than the whole thing
-        self.hashValue = sha256(
-            np.r_[
-                hash_pd(self.identityData, index=True).values,
-                hash_pd(self.rawPermissionData, index=True).values,
-                hash_pd(self.privilegedData, index=True).values,
-                hash_pd(self.roleData, index=True).values,
-            ]
-        ).hexdigest()[-8:]
+        self.processRoles()
+        self.processPrivilege()
+        self.hashData()
 
         # attribute data requires the category information as well
         if "Attr" in self.processingType:
