@@ -11,41 +11,48 @@ def mdsCalculation(
 ):
 
     """
+    ### Description
+
     Perform the Muli-dimensional Scaling of the data
 
-    Input
-    ----
+    ## Inputs
 
-    permissionData : pd.DataFrame
-        A pandas dataframe containing the permission data where 1 indicates the
-        identity has the permission and 0 indicates the id doesn't have it:
-                Perm0   Perm1   Permn   ...
-        ID0     0       1       0
-        ID1     1       0       1
-        IDm     0       1       1
+    **permissionData** (pd.DataFrame): A pandas dataframe containing the permission data where 1 indicates the identity has the permission and 0 indicates the id doesn't have it:
+
+    |       |Perm0  |Perm1  |Permn  |...
+    --------|-------|-------|-------|
+    ID0     |0      |1      |0      |
+    ID1     |1      |0      |1      |
+    IDm     |0      |1      |1      |
         ...
 
-    privilegedData : pd.DataFrame
-        A pandas dataframe containing two columns, the name of the permission and
-        the relative "privilege" of this compared to a standard permissions.
+    **privilegedData** (pd.DataFrame): A pandas dataframe containing two columns, the name of the permission and the relative "privilege" of this compared to a standard permissions.
 
-        NOTE Relative privilege should be on a scale of 2-5 where 1 is the default
-        value for a permission existing. Higher values can distort the scaling process
+    NOTE Relative privilege should be on a scale of 2-5 where 1 is the default
+    value for a permission existing. Higher values can distort the scaling process
 
-        Permissions     RelativePrivilege
-        Perm1           2
-        Perm2           4
-        Permn           x
+    Permissions |RelativePrivilege
+    ------------|------------
+    Perm1       |2
+    Perm2       |4
+    Permn       |x
+
+    ## Outputs
+
+    **pos** (np.array): Numpy array which describe the n-dimenionally reduced information. Each row corresponds to the position of the data described in the row/column of the dissimilarity matrix.
 
     """
 
     # apply the impact of privileged permissions
     # NOTE normalising the positions because a dotproduct for values > 1 is significantly slower than values <= 1
-    if privilegedData is not None:
+    if len(privilegedData) > 0:
         privilegeArray = np.array(privilegedData["RelativePrivilege"].astype(int))
         permissionData[privilegedData["Permission"]] *= (
             privilegeArray / privilegeArray.max()
         )
+
+    # Insert the role data
+    allPermissionData = pd.concat([permissionData, roleData]).fillna(0)
 
     # compute the relative similarity of each data point
     """
@@ -75,7 +82,7 @@ def mdsCalculation(
     Summary: f32 is a 20-300+x speed up on other data types and for larger multiplications, 
     is faster than f64. Given the negligible accuracy change f32 is used.
     """
-    x = permissionData.to_numpy().astype(np.float32)
+    x = allPermissionData.to_numpy().astype(np.float32)
     similarityPermissionData = np.dot(x, x.T) / np.sum(x, 1)
 
     dissimilarity = 1 - similarityPermissionData * similarityPermissionData.transpose()
@@ -118,10 +125,14 @@ def mdsCalculation(
 def clusterData(df, uidAttr, attribute, sliderRoundValue, dictRules=None):
 
     """
+
+    ### Description
+
     Cluster the data based on all identities position environment and an atribue
 
+
     Input
-    ------
+
     df : pd.DataFrame
         Dataframe of interest which contains information
 
