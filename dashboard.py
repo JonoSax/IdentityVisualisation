@@ -6,8 +6,6 @@ import os
 from datetime import datetime
 import dash_daq as daq
 import plotly.graph_objects as go
-from plotly.colors import qualitative as colours
-from plotly.colors import hex_to_rgb
 import numpy as np
 from textwrap import wrap
 import reporting
@@ -15,7 +13,6 @@ from utilities import filterIdentityDataFrame
 from plotting import *
 
 pd.options.mode.chained_assignment = None
-
 
 """
 TODO
@@ -31,12 +28,12 @@ external_stylesheets = ["https://codepen.io/chriddyp/pen/bWLwgP.css"]
 app = Dash(__name__)  # , external_stylesheets=external_stylesheets)
 
 
-def launchApp(dataModel: object, name=""):
+def launchApp(dataModel: object):
 
     appObj = createInteractivePlot(dataModel)
     # webbrowser.open("http://127.0.0.1:8050/", new = 0, autoraise = True)
     try:
-        appObj.run_server(debug=True)
+        appObj.run_server(debug=True, port=8050)
     except Exception as e:
         print(e)
         launchApp(appObj)
@@ -51,12 +48,12 @@ def createInteractivePlot(dataModel: object):
     # Remove the key words "Count" and "Unnamed: 0" which are artefacts of the plotting
 
     print("---Creating web server for plotting---")
-    df = dataModel.mdsResults
+    dfID = dataModel.mdsResults
 
     # Specify what data from the dataframe is to be selected and shared with the webbrowser
     selectedData = [
         d
-        for d in sorted(list(df.columns))
+        for d in sorted(list(dfID.columns))
         if d.lower().find("unnamed") == -1  # removed the unnamed columns
         and d != dataModel.joinKeys["identity"]  # remove the identity uid
     ]
@@ -71,27 +68,27 @@ def createInteractivePlot(dataModel: object):
         hover_data.remove("_DateTime")
         selectedData.append("_PermissionDateTime")
         hover_data.append("_PermissionDateTime")
-        df = df.sort_values(
+        dfID = dfID.sort_values(
             ["_DateTime", dataModel.joinKeys["identity"]], ascending=True
         )
 
         # role information is when the _DateTime == -1
-        dfRoles = df.copy()[df["_DateTime"] == -1]
-        df = df[df["_DateTime"] > 0]
+        dfRoles = dfID.copy()[dfID["_DateTime"] == -1]
+        dfID = dfID[dfID["_DateTime"] > 0]
 
         # convert the datetime object into a human readable time
-        df["_PermissionDateTime"] = df["_DateTime"].apply(
+        dfID["_PermissionDateTime"] = dfID["_DateTime"].apply(
             lambda x: datetime.fromtimestamp(int(x)).strftime("%m/%d/%Y, %H:%M:%S")
         )
 
         # create the marks for the slider
-        dtformat = df["_PermissionDateTime"].unique()
-        # dttimes = df["_DateTime"].unique()
+        dtformat = dfID["_PermissionDateTime"].unique()
+        # dttimes = dfID["_DateTime"].unique()
 
         marks = {n: {"label": d} for n, d in enumerate(dtformat)}
         # marks = {n: {'label': d} for n, d in zip(dttimes, dtformat)}
 
-    attrArray = np.array([[r, len(df[r].unique())] for r in hover_data])
+    attrArray = np.array([[r, len(dfID[r].unique())] for r in hover_data])
     dropDownOpt = [
         f"{attr}: {idNo} elements"
         for attr, idNo in attrArray
@@ -103,9 +100,9 @@ def createInteractivePlot(dataModel: object):
     # on the heat maps it can show up easily
     # NOTE this is not actually very useful as it assumes that data that is chronological is related
     """
-    dfSelect = df[hover_data]
+    dfSelect = dfID[hover_data]
     dfRanked = dfSelect.rank(numeric_only = True, method = 'dense').astype(int)
-    df[list(dfRanked.columns)] = dfRanked
+    dfID[list(dfRanked.columns)] = dfRanked
     """
 
     # make data point selection
@@ -379,20 +376,17 @@ def createInteractivePlot(dataModel: object):
             ),
             # data being transferred to call back functions
             # NOTE think about using @cache.memoize() to store some of these bigger dataframes to reduce the compute bottleneck? https://dash.plotly.com/sharing-data-between-callbacks
-            dcc.Store(
-                data=df[selectedData].to_json(orient="split"),
-                id="identityRepresentations",
-            ),
-            dcc.Store(
-                data=dataModel.rawPermissionData.astype(np.int8).to_json(
-                    orient="table"
-                ),
-                id="rawPermissionData",
-            ),
-            dcc.Store(
-                data=dataModel.identityData.to_json(orient="split"), id="identityData"
-            ),
-            dcc.Store(data=dfRoles.to_json(orient="table"), id="roleData"),
+            # dcc.Store(
+            #     data=dfID[selectedData].to_json(orient="split"),
+            #     id="identityRepresentations",
+            # ),
+            # dcc.Store(
+            #     data=dataModel.rawPermissionData.astype(np.int8).to_json(
+            #         orient="table"
+            #     ),
+            #     id="rawPermissionData",
+            # ),
+            # dcc.Store(data=dfRoles.to_json(orient="table"), id="roleData"),
             dcc.Store(data=dataModel.joinKeys["permission"], id="uidAttr"),
             dcc.Store(data=os.getpid(), id="pid"),
             dcc.Store(data=hover_data, id="hover_data"),
@@ -405,10 +399,14 @@ def createInteractivePlot(dataModel: object):
         ]
     )
 
-    print("     Web app created")
+    global dfID_g, dfRole_g, dfPerm_g, dfPriv_g
 
-    # remove the dataModel variable to save
-    del dataModel
+    dfID_g = dfID[selectedData]
+    dfRole_g = dfRoles
+    dfPerm_g = dataModel.rawPermissionData.astype(np.int8)
+    dfPriv_g = dataModel.privilegedData
+
+    print("     Web app created")
 
     return app
 
@@ -419,8 +417,8 @@ def createInteractivePlot(dataModel: object):
     Output("identitiesPlotted", "data"),
     # Input('plotly_figure', 'figure'),
     State("plotly_figure", "relayoutData"),
-    State("identityRepresentations", "data"),
-    State("roleData", "data"),
+    # State("identityRepresentations", "data"),
+    # State("roleData", "data"),
     Input("selectedDropDown", "value"),
     Input("selectableDropDownExclude", "value"),
     Input("selectableDropDownInclude", "value"),
@@ -434,8 +432,8 @@ def createInteractivePlot(dataModel: object):
 )
 def update_graph(
     figLayout,
-    dfIDjson,
-    dfRolejson,
+    # dfIDjson,
+    # dfRolejson,
     attribute,
     elementsExclude,
     elementsInclude,
@@ -466,8 +464,8 @@ def update_graph(
     )
 
     attribute = attribute.split(":")[0]
-    dfID = pd.read_json(dfIDjson, orient="split")
-    dfRole = pd.read_json(dfRolejson, orient="table")
+    dfID = dfID_g.copy()  # pd.read_json(dfIDjson, orient="split")
+    dfRole = dfRole_g.copy()  # pd.read_json(dfRolejson, orient="table")
 
     # simplify the elements exclude info list for processing by the pandas df
     includeInfo = [e.split(": ") for e in elementsInclude]
@@ -518,7 +516,7 @@ def update_graph(
     if len(dfRole) > 0:
 
         fig = add_roles(fig, dfRole, uidAttr)
-        
+
     # ---------- Scale and format the plot ----------
 
     r = 0.2  # The extra bit to add to the graphs for scaling
@@ -585,7 +583,7 @@ def update_graph(
 @app.callback(
     Output("submit_plot", "n_clicks"),
     Input("submit_plot", "n_clicks"),
-    Input("plotly_figure", "figure"),
+    State("plotly_figure", "figure"),
     Input("info", "data"),
     Input("selectedDropDown", "value"),
 )
@@ -609,13 +607,12 @@ def save_plot(click, fig, info, selectedAttr):
 @app.callback(
     Output("report_1", "n_clicks"),
     Input("report_1", "n_clicks"),
-    Input("identitiesPlotted", "data"),
-    Input("rawPermissionData", "data"),
-    Input("uidAttr", "data"),
-    Input("slider-dates", "value"),
-    Input("selectedDropDown", "value"),
+    State("identitiesPlotted", "data"),
+    State("uidAttr", "data"),
+    State("slider-dates", "value"),
+    State("selectedDropDown", "value"),
 )
-def report_1(click, idPlotted, permData, uid, sliderDate, selectedAttr):
+def report_1(click, idPlotted, uid, sliderDate, selectedAttr):
 
     """
     Create a report which identifies which identities are "outliers" relative to their peers in their respective element. It models all identities as seen when the slider-rounding value = 0.
@@ -626,11 +623,18 @@ def report_1(click, idPlotted, permData, uid, sliderDate, selectedAttr):
     if click and idPlotted is not None:
 
         idPlotted = pd.read_json(idPlotted, orient="split")
-        permData = pd.read_json(permData, orient="table")
+        permData = dfPerm_g.copy()
+        privData = dfPriv_g.copy()
         selectedAttr = selectedAttr.split(":")[0]
 
         reporting.report_1(
-            idPlotted, permData, uid, sliderDate, "OutlierReport", selectedAttr
+            idPlotted,
+            permData,
+            privData,
+            uid,
+            sliderDate,
+            "OutlierReport",
+            selectedAttr,
         )
 
     return 0
@@ -640,21 +644,19 @@ def report_1(click, idPlotted, permData, uid, sliderDate, selectedAttr):
 @app.callback(
     Output("report_2", "n_clicks"),
     Input("report_2", "n_clicks"),
-    Input("plotly_figure", "figure"),
-    Input("identitiesPlotted", "data"),
-    Input("rawPermissionData", "data"),
-    Input("uidAttr", "data"),
-    Input("selectedDropDown", "value"),
-    Input("slider-rounding", "value"),
-    Input("slider-clustering", "value"),
-    Input("slider-dates", "value"),
-    Input("hover_data", "data"),
+    State("plotly_figure", "figure"),
+    State("identitiesPlotted", "data"),
+    State("uidAttr", "data"),
+    State("selectedDropDown", "value"),
+    State("slider-rounding", "value"),
+    State("slider-clustering", "value"),
+    State("slider-dates", "value"),
+    State("hover_data", "data"),
 )
 def report_2(
     click,
     fig,
     idPlotted,
-    permData,
     uid,
     selectedAttr,
     sliderRound,
@@ -672,10 +674,7 @@ def report_2(
     if click and idPlotted is not None:
 
         idPlotted = pd.read_json(idPlotted, orient="split")
-        permData = pd.read_json(
-            permData,
-            orient="table",
-        )
+        permData = dfPerm_g.copy()
         selectedAttr = selectedAttr.split(":")[0]
 
         reportName = "ClusterReport"
@@ -700,13 +699,12 @@ def report_2(
 @app.callback(
     Output("report_3", "n_clicks"),
     Input("report_3", "n_clicks"),
-    Input("identitiesPlotted", "data"),
-    Input("rawPermissionData", "data"),
-    Input("uidAttr", "data"),
-    Input("selectedDropDown", "value"),
-    Input("hover_data", "data"),
+    State("identitiesPlotted", "data"),
+    State("uidAttr", "data"),
+    State("selectedDropDown", "value"),
+    State("hover_data", "data"),
 )
-def report_3(click, idPlotted, permData, uid, selectedAttr, hover_data):
+def report_3(click, idPlotted, uid, selectedAttr, hover_data):
 
     """
     Create a report which describes the permission and attribute break down of all the selected clusters.
@@ -717,10 +715,7 @@ def report_3(click, idPlotted, permData, uid, selectedAttr, hover_data):
     if click and idPlotted is not None:
 
         idPlotted = pd.read_json(idPlotted, orient="split")
-        permData = pd.read_json(
-            permData,
-            orient="split",
-        )
+        permData = dfPerm_g.copy()
         selectedAttr = selectedAttr.split(":")[0]
 
         reportName = "TrendReport"
@@ -735,14 +730,12 @@ def report_3(click, idPlotted, permData, uid, selectedAttr, hover_data):
 # killing the dash server
 @app.callback(
     Output("stop_button", "children"),
-    Input("plotly_figure", "figure"),
     Input("stop_button", "n_clicks"),
-    Input("pid", "data"),
+    State("pid", "data"),
 )
-def update_exit_button(fig, click, pid):
+def update_exit_button(click, pid):
     if click:
         print("\n!!----- Stopping plottng, server disconnected -----!!\n")
-        fig.update
         os.system(f"taskkill /IM {pid} /F")  # this kills the app
         return
 
@@ -751,20 +744,31 @@ def update_exit_button(fig, click, pid):
 @app.callback(
     Output("selected_points_table", "data"),
     State("selected_points_table", "data"),
-    Input("hover_data", "data"),
+    State("hover_data", "data"),
     Input("plotly_figure", "clickData"),
 )
-def add_row(rows, hover_data, inputData):
-    if inputData is None:
+def add_row(rows, hover_data, inputSelection):
+
+    # if there is no input exit
+    if inputSelection is None:
         # rows = None
-        pass
-    elif len(inputData["points"][0]["customdata"]) != len(hover_data):
+        return rows
+
+    # extract the data
+    inputData = inputSelection["points"][0]["customdata"]
+
+    # if the selected data is cluster information just remove that info
+    if inputData[0].find("Cluster ") > -1:
+        inputData = inputData[2:]
+
+    # if the input data still does't match the hover_data categories, pass
+    if len(inputData) != len(hover_data):
         pass
     else:
         print("----- Data added -----")
         d = {}
         for n, hd in enumerate(hover_data):
-            d[hd] = inputData["points"][0]["customdata"][n]
+            d[hd] = inputData[n]
         if rows == [] or rows is None:
             rows = [d]
         elif all(rows[-1][k] == "" for k in list(rows[-1])):
@@ -921,14 +925,12 @@ def update_buttons(sliderRounding, sliderClustering, trackingToggle):
     Output("selectableDropDownInclude", "options"),
     Input("selectedDropDown", "value"),
     Input("identitiesPlotted", "data"),
-    Input("identityRepresentations", "data"),
     Input("selectableDropDownExclude", "value"),
     Input("selectableDropDownInclude", "value"),
 )
 def generate_sub_categories(
     attribute,
     identitiesPlotted,
-    identitiesAll,
     selectedDropDownExclude,
     selectedDropDownInclude,
 ):
@@ -953,7 +955,7 @@ def generate_sub_categories(
 
     if identitiesPlotted is not None:
         identitiesPlotted = pd.read_json(identitiesPlotted, orient="split")
-        identitiesAll = pd.read_json(identitiesAll, orient="split")
+        identitiesAll = dfID_g  # pd.read_json(identitiesAll, orient="split")
         attribute = attribute.split(":")[0]
         dropDownExclude = (
             sorted(
@@ -965,6 +967,11 @@ def generate_sub_categories(
             sorted([f"{attribute}: {ele}" for ele in identitiesAll[attribute].unique()])
             + selectedDropDownInclude
         )
+
+        # ensure you cannot select include for elements that are excluded
+        # [dropDownInclude.remove(exc) for exc in selectedDropDownExclude]
+        # [dropDownExclude.remove(exc) for exc in selectedDropDownInclude]
+
     else:
         dropDownExclude = selectedDropDownExclude
         dropDownInclude = selectedDropDownInclude
