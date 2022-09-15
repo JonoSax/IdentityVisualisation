@@ -381,10 +381,16 @@ class CSVData(DataModel):
                 pStore[self.joinKeys["permission"]] + f"_{date}"
             )  # this is only needed for the pivot table
             # pStore["_DateTime"] = f"_{date}"
+
+            # remove any duplicate entries of the access and the identity
             if pAll is None:
                 pAll = pStore
             else:
                 pAll = pd.concat([pAll, pStore])
+
+        pAll.drop_duplicates(
+            subset=[self.permissionValue, pivotSelect], inplace=True, keep="first"
+        )
 
         # perform a pivot of the raw csv data to create a sparse matrix of occurence
         headers = list(pAll.columns.unique())
@@ -398,6 +404,7 @@ class CSVData(DataModel):
             aggfunc="count",
             fill_value=0,
         )
+
         pivot.columns = pivot.columns.droplevel(0)
         pivot = pivot.reset_index()
         pivot = pivot.set_index(self.permissionValue)
@@ -429,6 +436,8 @@ class CSVData(DataModel):
             self.privilegedData = pd.read_csv(self.privilegedPath, dtype=str).dropna(
                 how="all"
             )
+        else:
+            self.privilegedData = pd.DataFrame(None)
 
     def getRoleData(self):
 
