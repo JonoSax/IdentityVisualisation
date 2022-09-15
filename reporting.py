@@ -361,7 +361,9 @@ class Metrics:
         self.clusterAgg = np.clip(dfAggregate, 0.01, np.inf).dropna(how="all").fillna(0)
 
 
-def report_1(plotIDdf, permissions, uiddf, sliderDate, reportName, attribute=None):
+def report_1(
+    plotIDdf, permissions, privData, uiddf, sliderDate, reportName, attribute=None
+):
 
     """
 
@@ -605,6 +607,9 @@ def report_1(plotIDdf, permissions, uiddf, sliderDate, reportName, attribute=Non
     # prioritise actions for
     while removeC + addC < 10 and len(priorityPermissions) > 0:
         pi = priorityPermissions.pop(0)
+        if pi in "Access0" in privData.index:
+            pi = f"{pi} **Privilege level {int(privData.loc[pi])}"
+
         pAnalysis = dist.rawOutlierInfo[dist.rawOutlierInfo["Value"] == pi]
 
         # To remove the permissions
@@ -678,7 +683,7 @@ def report_1(plotIDdf, permissions, uiddf, sliderDate, reportName, attribute=Non
     allPerm = pd.concat([latestPermissions, modLatestPermissions])
 
     # re-calculate the mds
-    perMos = mdsCalculation(allPerm)
+    perMos = mdsCalculation(allPerm, privData)
     dimNames = [f"Dim{n}_R" for n in range(3)]
 
     # merge all the positional and identity data together
@@ -766,6 +771,9 @@ def report_1(plotIDdf, permissions, uiddf, sliderDate, reportName, attribute=Non
     rowNo = 5
     while removeC + addC < 30 and len(priorityPermissions) > 0:
         pi = priorityPermissions.pop(0)
+        if pi in "Access0" in privData.index:
+            pi = f"{pi} **Privilege level {int(privData.loc[pi])}"
+
         pAnalysis = dist.rawOutlierInfo[dist.rawOutlierInfo["Value"] == pi]
 
         # To remove the permissions
