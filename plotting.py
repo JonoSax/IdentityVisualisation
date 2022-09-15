@@ -399,7 +399,6 @@ def plot_identities(
         colourDict[str(c)] = colours.Plotly[n_c % len(colours.Plotly)]
 
     # Remove the uid from the hoverdata so that it has to be explicitly included
-    hover_data.remove(uidAttr)
     fig = px.scatter_3d(pd.DataFrame(None))
 
     # the clusters to include
@@ -407,7 +406,7 @@ def plot_identities(
         dfPosInclAttr = dfTimeIncl[dfTimeIncl[attribute] == ele]
         fig.add_scatter3d(
             connectgaps=False,
-            customdata=dfPosInclAttr[[uidAttr] + hover_data],
+            customdata=dfPosInclAttr[hover_data],
             x=dfPosInclAttr["Dim0"],
             y=dfPosInclAttr["Dim1"],
             z=dfPosInclAttr["Dim2"],
@@ -415,11 +414,11 @@ def plot_identities(
             marker=dict(
                 color=colourDict[ele], opacity=1
             ),  # include has an opacity of 1
-            hovertemplate=f"<b>{uidAttr}: %{'{customdata[0]}'}</b><br><br>"
+            hovertemplate=f"<b>{uidAttr}: %{'{customdata['}{hover_data.index(uidAttr)}{']}'}</b><br><br>"
             + "<br>".join(
                 [
                     f"{h}: %{'{customdata['+str(n)+']}'}"
-                    for n, h in enumerate(hover_data, 1)
+                    for n, h in enumerate(hover_data)
                 ]
             ),
             legendgroup=ele,
