@@ -7,7 +7,10 @@ from openpyxl import Workbook
 
 # @jit
 def mdsCalculation(
-    permissionData: pd.DataFrame, privilegedData=None, roleData=None, dims=3
+    permissionData: pd.DataFrame,
+    privilegedData=pd.DataFrame(None),
+    roleData=pd.DataFrame(None),
+    dims=3,
 ):
 
     """
@@ -46,10 +49,9 @@ def mdsCalculation(
     # apply the impact of privileged permissions
     # NOTE normalising the positions because a dotproduct for values > 1 is significantly slower than values <= 1
     if len(privilegedData) > 0:
-        privilegeArray = np.array(privilegedData["RelativePrivilege"].astype(int))
-        permissionData[privilegedData["Permission"]] *= (
-            privilegeArray / privilegeArray.max()
-        )
+        privilegeArray = np.array(privilegedData["RelativePrivilege"].astype(int)) / 10
+        permissionData[privilegedData.index] += privilegeArray
+        permissionData /= permissionData.max().max()
 
     # Insert the role data
     allPermissionData = pd.concat([permissionData, roleData]).fillna(0)
@@ -92,7 +94,7 @@ def mdsCalculation(
 
     mds = manifold.MDS(
         n_components=dims,
-        max_iter=1000,
+        max_iter=500,
         eps=1e-3,
         random_state=np.random.RandomState(seed=3),
         dissimilarity="precomputed",
@@ -194,6 +196,10 @@ def clusterData(df, uidAttr, attribute, sliderRoundValue, dictRules=None):
         cStore.append(f"Cluster {c}")
 
     dfPos["_ClusterID"] = cStore
+
+    dfPos.loc[dfPos["_Count"] > 1, uidAttr] = dfPos.loc[
+        dfPos["_Count"] > 1, "_ClusterID"
+    ]
 
     return dfPos
 
