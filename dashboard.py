@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 import numpy as np
 from textwrap import wrap
 import reporting
-from utilities import filterIdentityDataFrame
+from utilities import filterIdentityDataFrame, create_colour_dict
 from plotting import *
 
 pd.options.mode.chained_assignment = None
@@ -62,6 +62,11 @@ def createInteractivePlot(dataModel: object):
     hover_data = [s for s in selectedData if s.lower().find("dim") == -1]
     # hover_data.remove("timeUnix")
 
+    # create the colour dictionary to be used for all graphing
+    colour_dict = {}
+    for d in hover_data:
+        colour_dict[d] = create_colour_dict(dfID[d])
+
     marks = {}
     # convert the datetime object of the permission extract into a human readable format
     if "_DateTime" in hover_data:
@@ -88,7 +93,7 @@ def createInteractivePlot(dataModel: object):
         marks = {n: {"label": d} for n, d in enumerate(dtformat)}
         # marks = {n: {'label': d} for n, d in zip(dttimes, dtformat)}
 
-    attrArray = np.array([[r, len(dfID[r].unique())] for r in hover_data])
+    attrArray = np.array([[r, len(dfID[r].unique())] for r in hover_data if r.find("DateTime") == -1])
     dropDownOpt = [
         f"{attr}: {idNo} elements"
         for attr, idNo in attrArray
@@ -285,6 +290,20 @@ def createInteractivePlot(dataModel: object):
                             "display": "inline-block",
                         },
                     ),
+                    html.Div(
+                        [
+                            daq.ToggleSwitch(
+                                id="toggle-rolesurface",
+                                value=False,
+                            ),
+                            html.Div(id="toggle-rolesurface-out"),
+                        ],
+                        style={
+                            "margin-left": "15px",
+                            "margin-top": "15px",
+                            "display": "inline-block",
+                        },
+                    ),
                     # slider for dates
                     html.Div(
                         [
@@ -388,8 +407,9 @@ def createInteractivePlot(dataModel: object):
             # ),
             # dcc.Store(data=dfRoles.to_json(orient="table"), id="roleData"),
             dcc.Store(data=dataModel.joinKeys["permission"], id="uidAttr"),
-            dcc.Store(data=os.getpid(), id="pid"),
+            dcc.Store(data=dataModel.joinKeys["role"], id="roleAttr"),
             dcc.Store(data=hover_data, id="hover_data"),
+            dcc.Store(data=os.getpid(), id="pid"),
             dcc.Store(data="info", id="info"),
             dcc.Store(
                 data=None, id="identitiesPlotted"
@@ -399,12 +419,13 @@ def createInteractivePlot(dataModel: object):
         ]
     )
 
-    global dfID_g, dfRole_g, dfPerm_g, dfPriv_g
+    global dfID_g, dfRole_g, dfPerm_g, dfPriv_g, colour_dict_g
 
     dfID_g = dfID[selectedData]
     dfRole_g = dfRoles
-    dfPerm_g = dataModel.rawPermissionData.astype(np.int8)
+    dfPerm_g = dataModel.permissionData
     dfPriv_g = dataModel.privilegedData
+    colour_dict_g = colour_dict
 
     print("     Web app created")
 
@@ -422,10 +443,12 @@ def createInteractivePlot(dataModel: object):
     Input("selectedDropDown", "value"),
     Input("selectableDropDownExclude", "value"),
     Input("selectableDropDownInclude", "value"),
-    Input("uidAttr", "data"),
-    Input("hover_data", "data"),
+    State("uidAttr", "data"),
+    State("roleAttr", "data"),
+    State("hover_data", "data"),
     Input("toggle-timeseries", "value"),
     Input("toggle-hoverinfo", "value"),
+    Input("toggle-rolesurface", "value"),
     Input("slider-dates", "value"),
     Input("slider-rounding", "value"),
     Input("slider-clustering", "value"),
@@ -438,9 +461,11 @@ def update_graph(
     elementsExclude,
     elementsInclude,
     uidAttr,
+    roleAttr,
     hover_data,
     trackingToggle,
     hoverinfoToggle,
+    rolesurfaceToggle,
     sliderDateValue,
     sliderRoundValue,
     sliderClusterValue,
@@ -474,6 +499,7 @@ def update_graph(
     dfID[hover_data] = dfID[hover_data].astype(str)
     dataColumns = list(dfID.columns)
     dims = sum(1 for x in list(dataColumns) if x.startswith("Dim"))
+    colour_dict = colour_dict_g.copy()
 
     dfIDIncl, dfIDExcl = filterIdentityDataFrame(
         dfID, uidAttr, includeInfo, excludeInfo
@@ -489,12 +515,17 @@ def update_graph(
     # ---------- Track attributes across the time inputs ----------
     if trackingToggle:
 
-        fig, plotTitle = track_elements(dfIDIncl, uidAttr, attribute, hover_data)
+        fig, plotTitle = track_elements(
+            dfIDIncl, uidAttr, attribute, hover_data, colour_dict[attribute]
+        )
+
+        dfPlotExcl = dfIDExcl
+        dfPlotIncl = dfIDIncl
 
     #  ---------- Cluster data around reduced spatial resolution ----------
     elif sliderRoundValue > 0:
 
-        fig, plotTitle = cluster_identities(
+        fig, plotTitle, dfPlotIncl, dfPlotExcl = cluster_identities(
             dfIDIncl,
             dfIDExcl,
             uidAttr,
@@ -503,19 +534,37 @@ def update_graph(
             sliderDateValue,
             sliderRoundValue,
             sliderClusterValue,
+            colour_dict[attribute],
         )
 
     # ---------- Plot the raw identity data ----------
     else:
 
-        fig, plotTitle = plot_identities(
-            dfIDIncl, dfIDExcl, uidAttr, attribute, hover_data, sliderDateValue
+        fig, plotTitle, dfPlotIncl, dfPlotExcl = plot_identities(
+            dfIDIncl,
+            dfIDExcl,
+            uidAttr,
+            attribute,
+            hover_data,
+            sliderDateValue,
+            colour_dict[attribute],
         )
 
     # ---------- Plot the role data ----------
     if len(dfRole) > 0:
 
-        fig = add_roles(fig, dfRole, uidAttr)
+        # fig = add_roles(fig, dfID, dfRole, uidAttr, roleAttr)
+
+        fig = plot_roles(
+            fig,
+            dfPlotIncl,
+            dfPlotExcl,
+            dfRole,
+            uidAttr,
+            roleAttr,
+            rolesurfaceToggle and not trackingToggle,   # link roles only if not tracking
+            colour_dict[roleAttr],
+        )
 
     # ---------- Scale and format the plot ----------
 
@@ -823,41 +872,84 @@ def save_file(click, tab_data, filename):
     return placeholder, output, 0
 
 
-# enable/disable the toggle and sliders
 @app.callback(
     Output("toggle-timeseries-out", "children"),
     Output("toggle-hoverinfo-out", "children"),
+    Output("toggle-rolesurface-out", "children"),
+    Output("toggle-rolesurface", "disabled"),
     Output("slider-dates", "disabled"),
     Output("slider-rounding", "disabled"),
     Output("slider-clustering", "disabled"),
     Input("toggle-timeseries", "value"),
     Input("toggle-hoverinfo", "value"),
+    Input("toggle-rolesurface", "value"),
+    State("roleAttr", "data"),
     Input("slider-rounding", "value"),
 )
-def update_output(toggleTimeSeriesValue, toggleHoverinfoValue, sliderRoundValue):
+def update_output(
+    toggleTimeSeriesValue,
+    toggleHoverinfoValue,
+    roleSurfaceValue,
+    roleAttr,
+    sliderRoundValue,
+):
+
+    """
+    Update the toggles and sliders based on the corresponding value of each other
+    """
 
     # default values of all sliders/toggles
     toggleTimeSeries = "Date of extract"
     toggleHoverinfo = "Hoverinfo disabled"
+    roleSurfaceInfo = "No role overlay"
+    roleSurfaceInfoDisabled = False
     sliderDateDisabled = False
     sliderRoundDisabled = False
     sliderClusterDisabled = False
 
+    """
+    If displaying time tracking data then:
+        - No date selection (all being displayed anyway)
+        - No rounding of data 
+        - No clustering of data
+        - No role surface creation 
+    """
     if toggleTimeSeriesValue:
         toggleTimeSeries = "Tracking data"
         sliderDateDisabled = True
         sliderRoundDisabled = True
         sliderClusterDisabled = True
+        roleSurfaceInfoDisabled = True
 
+    """
+    If there is no rounding being performed:
+        - There is no threshold of rounding to be performed
+    """
     if sliderRoundValue == 0:
         sliderClusterDisabled = True
 
+    """
+    When the hover info is enabled display the appropriate text
+    """
     if not toggleHoverinfoValue:
         toggleHoverinfo = "Hoverinfo enabled"
+
+    """
+    If the the role surface is selected AND there is role information then display the appropriate text.
+
+    If there is no role information (determined by whether a role joining key exists) then the role surface viewer is disabled (and no role information will be displayed).
+    """
+    if roleSurfaceValue and roleAttr is not None:
+        roleSurfaceInfo = "Role overlaying"
+    elif roleAttr is None:
+        roleSurfaceInfo = "No roles"
+        roleSurfaceInfoDisabled = True
 
     return (
         toggleTimeSeries,
         toggleHoverinfo,
+        roleSurfaceInfo,
+        roleSurfaceInfoDisabled,
         sliderDateDisabled,
         sliderRoundDisabled,
         sliderClusterDisabled,
@@ -880,7 +972,7 @@ def update_output(toggleTimeSeriesValue, toggleHoverinfoValue, sliderRoundValue)
 def update_buttons(sliderRounding, sliderClustering, trackingToggle):
 
     """
-    Update all buttons based on the various inputs
+    Update the report buttons
     """
 
     report3 = False
@@ -937,18 +1029,6 @@ def generate_sub_categories(
 
     """
     Get all the possible options for the include and/or exclude categories
-    """
-    """
-    if identitiesPlotted is not None:
-        identitiesPlotted = pd.read_json(identitiesPlotted, orient='split')
-        attribute = attribute.split(":")[0]
-        dropDown = sorted([f"{attribute}: {ele}" for ele in identitiesPlotted[attribute].unique()] + selectedDropDownExclude)
-    elif selectedDropDownExclude is not None:
-        dropDown = selectedDropDownExclude
-    else:
-        dropDown = []
-
-    return dropDown, dropDown
     """
 
     # NOTE keeping track of what is included AND excluded becomes pretty complicated....
