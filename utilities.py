@@ -2,6 +2,8 @@ import numpy as np
 from sklearn import manifold
 import pandas as pd
 from openpyxl import Workbook
+from plotly.colors import qualitative as colours
+from plotly.colors import hex_to_rgb
 
 # from numba import jit
 
@@ -197,9 +199,12 @@ def clusterData(df, uidAttr, attribute, sliderRoundValue, dictRules=None):
 
     dfPos["_ClusterID"] = cStore
 
-    dfPos.loc[dfPos["_Count"] > 1, uidAttr] = dfPos.loc[
-        dfPos["_Count"] > 1, "_ClusterID"
-    ]
+    # if the aggregation rule does not create data (ie it is just a simple string) then replace the uid value with the clusterID
+    # NOTE I think this can actaully be done by the aggregation rule...
+    if np.all([type(d) == str for d in dfPos.loc[dfPos["_Count"] > 1, uidAttr]]):
+        dfPos.loc[dfPos["_Count"] > 1, uidAttr] = dfPos.loc[
+            dfPos["_Count"] > 1, "_ClusterID"
+        ]
 
     return dfPos
 
@@ -308,3 +313,34 @@ def filterIdentityDataFrame(dfID, uid, includeInfo=[], excludeInfo=[]):
     exclude = dfID[~dfLogic]
 
     return include, exclude
+
+
+def create_colour_dict(
+    *dfs,
+    coltype="hex",
+    transparency=1,
+):
+
+    """
+    Create the colour dictionary used to annotate the plots
+
+    Dont assume each dataframe has the same attributes
+    """
+
+    # create the colour dictionary to be used for all visualisation
+    colour_dict = {}
+    if coltype == "hex":
+        colFunc = lambda x: colours.Plotly[x % len(colours.Plotly)]
+
+    elif coltype == "rgb":
+        colFunc = (
+            lambda x: f"rgba{tuple(np.append(hex_to_rgb(colours.Plotly[x % len(colours.Plotly)]), transparency))}"
+        )
+
+    for n_c, c in enumerate(
+        sorted(np.unique(np.concatenate([df.dropna().unique() for df in dfs])))
+    ):
+
+        colour_dict[str(c)] = colFunc(n_c)
+
+    return colour_dict
