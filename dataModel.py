@@ -37,7 +37,7 @@ class DataModel(object):
         processingTypes:            (string),           Specified as either Identity or Attribute (determines calculation and plotting properties)
 
         dir:                        (dict),             Dictionary containing the directories and paths used
-        joinKeys:                   (dict),             Dictionary containing the keys used to join the identity and permission data together
+        joinKeys:                   (dict),             Dictionary containing the keys used to join the identity, permission and role data together
         permissionValue:            (str),              The attribute value in the permission dataframe which contains the permission data to model/report on
         mdsSavedResults:            (str),              Path of the current MDS results saved output
 
@@ -53,13 +53,18 @@ class DataModel(object):
         self.categories = None
         self.categoriesHeader = None
 
+        self.rawRawPermissionData = pd.DataFrame(None)
+        self.rawPrivilegedData = pd.DataFrame(None)
+        self.rawRoleData = pd.DataFrame(None)
+        self.rawIdentityData = pd.DataFrame(None)
+
         self.rawPermissionData = pd.DataFrame(None)
         self.privilegedData = pd.DataFrame(None)
         self.roleData = pd.DataFrame(None)
         self.identityData = pd.DataFrame(None)
         self.mdsResults = pd.DataFrame(None)
         self.processingType = "identity"
-        self.joinKeys = {"identity": None, "permission": None}
+        self.joinKeys = {"identity": None, "permission": None, "role": None}
         self.permissionValue = None
         self.mdsSavedResults = None
 
@@ -78,6 +83,10 @@ class DataModel(object):
 
     def processType(self, processName: str):
 
+        """
+        NOTE depreceated
+        """
+
         if "ident" in processName.lower():
             processingType = "Identity"
         elif "attr" in processName.lower():
@@ -88,27 +97,78 @@ class DataModel(object):
 
         return processingType
 
+    def processIdentities(self):
+
+        self.identityData = self.rawIdentityData
+
+    def processPermissions(self):
+
+        idSelect = list(self.identityData[self.joinKeys["identity"]].unique())
+
+        pivotSelect = f"{self.joinKeys['permission']}_DateTime"
+
+        # this is joining the identity and permission data as only the identities in the
+        # identityData are INCLUDED in the permission data.
+        # If the identity is present for any time extract in the identity data then it
+        # will be included from all permission data
+        """
+        pStore = pStore[pStore[self.joinKeys["permission"]].isin(idSelect)]
+        pStore[pivotSelect] = (
+            pStore[self.joinKeys["permission"]] + f"_{date}"
+        )  # this is only needed for the pivot table
+        """
+        # pStore["_DateTime"] = f"_{date}"
+
+        # perform a pivot of the raw csv data to create a sparse matrix of occurence
+        headers = list(self.rawPermissionData.columns.unique())
+        headers.remove(self.joinKeys["permission"])
+        headers.remove(self.permissionValue)
+        pivot = self.rawPermissionData.pivot_table(
+            values=headers[0],
+            columns=self.permissionValue,
+            index=[self.joinKeys["permission"], "_DateTime"],
+            aggfunc="count",
+            fill_value=0,
+        )
+
+        self.categoriesHeader = [self.joinKeys["permission"], "_DateTime"]
+        self.categories = np.array([*pivot.index.to_numpy()])
+        self.processingType = self.processType("Identity")
+        self.permissionData = pivot
+
     def processRoles(self):
 
         """
         Take the role data and process into the necesary array for calculations
         """
 
-        if len(self.roleData) == 0:
+        if len(self.rawRoleData) == 0:
             return
 
-        self.roleData = self.roleData.pivot_table(
-            values=self.roleData.columns[0],
-            columns="Permission",
-            index="RoleAssignment",
+        modRoleData = self.rawRoleData
+        modRoleData["_DateTime"] = -1
+
+        pivot = modRoleData.pivot_table(
+            values=self.rawRoleData.columns[0],
+            columns="Value",
+            index=[self.joinKeys["role"], "_DateTime"],
             aggfunc="count",
             fill_value=0,
         )
+        self.roleData = pivot
 
-        # set the categories of the roles as -1. This can never be set by the timing because you cannot get a negative time!
-        self.categories = np.r_[
-            self.categories, [[r, "-1"] for r in self.roleData.index]
-        ]
+        # add the role information to the identity dataframe
+        roledf = pd.DataFrame(None, columns=self.identityData.columns)
+        roledf[self.joinKeys["role"]] = pivot.index.get_level_values(0)
+        roledf[self.joinKeys["identity"]] = pivot.index.get_level_values(0)
+        roledf["_DateTime"] = -1
+
+        self.identityData = pd.concat([self.identityData, roledf])
+
+        # add the role division information and fake datetime to the permission array (when it is processes)
+        self.categories = np.r_[self.categories, np.array([*pivot.index.to_numpy()])]
+
+        self.categories
 
     def processPrivilege(self):
 
@@ -124,15 +184,17 @@ class DataModel(object):
     def hashData(self, len=8):
 
         """
-        Create a hash value to represent the data
+        Create a hash value to represent the RAW data.
+
+        Use raw not processed to allow for change in the processing of the information
         """
 
         self.hashValue = sha256(
             np.r_[
-                hash_pd(self.identityData, index=True).values,
+                hash_pd(self.rawIdentityData, index=True).values,
                 hash_pd(self.rawPermissionData, index=True).values,
-                hash_pd(self.privilegedData, index=True).values,
-                hash_pd(self.roleData, index=True).values,
+                hash_pd(self.rawPrivilegedData, index=True).values,
+                hash_pd(self.rawRoleData, index=True).values,
             ]
         ).hexdigest()[-len:]
 
@@ -163,8 +225,10 @@ class DataModel(object):
             print("     Impossible dimensions inputted")
             return
 
-        self.processRoles()
+        self.processIdentities()
+        self.processPermissions()
         self.processPrivilege()
+        self.processRoles()
         self.hashData()
 
         # attribute data requires the category information as well
@@ -199,7 +263,7 @@ class DataModel(object):
         # and the rows being the identities
 
         # apply the impact of privileged permissions
-        pos = mdsCalculation(self.rawPermissionData, self.privilegedData, self.roleData)
+        pos = mdsCalculation(self.permissionData, self.privilegedData, self.roleData)
         print(f"     Fitting complete")
 
         # get n-dimension labels
@@ -223,14 +287,15 @@ class DataModel(object):
                 for r in list(self.identityData.columns)
                 if r.lower().find("unnamed") == -1
             ]
-            posidentitiesSelect = self.identityData[selectColums]
+            identityExtract = self.identityData[selectColums]
+            """
             formatColumns0 = [
                 r.replace(" ", "") for r in list(posidentitiesSelect.columns)
             ]
             identityExtract = posidentitiesSelect.set_axis(
                 formatColumns0, axis=1, inplace=False
             )
-
+            """
             # Join the data based on the available information
             if "_DateTime" in identityExtract.columns:
                 entitleExtract["_DateTime"] = entitleExtract["_DateTime"].astype(int)
@@ -243,6 +308,8 @@ class DataModel(object):
                     lambda x: datetime.fromtimestamp(int(x)).strftime(
                         "%m/%d/%Y, %H:%M:%S"
                     )
+                    if x > 0
+                    else None
                 )
                 # match for identity extracts with the closest in time to the entitlement extract. If there is no identity matched then the individual who is modelled will still be included (this is a left join), however they will have not associated identity data.
                 # NOTE a tolerance of a week, tolerance = 604800
