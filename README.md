@@ -1,4 +1,5 @@
 PoSE: Permissions of the System Environment
+Identity Visualiser (doesn't sound as wanky)
 
 We want the clients PoSE so we visualise, explain and recommend actions to impove their system integrity.
 
@@ -45,6 +46,11 @@ This logically how it works:
         6 - Load the relevant plot
 
 TODO:
+
+    - Create unit testing and validation 
+
+    - Create reports which explicilty address ISO standards
+
     - Get the excel writing/reporting capabilities
         - RBAC: 
             -Recommend clusterings of the data
@@ -57,8 +63,11 @@ TODO:
                 - Pull the permissions out which have been modelled
                 - Of the permissions, attempt to create 2-4 layers of Enterprise, Operational, Functional roles to cover all the newly suggested roles
 
+            - BAU report (similar to outlier report) but instead of linking to the identity spreads relative to their peers, calculate relative to the role position
+                - Provide recommendations on permissions that should be added/taken away from the roles/individuals relative to the "ideal role" and the current permissions of the indentities
+
         - Regular Reporting: 
-            - Report on any identities which have deviated significantly from other identiies with similar permissions as them
+            - [DONE] Report on any identities which have deviated significantly from other identiies with similar permissions as them
                 - Compare each identities position in relation to other identities with similar attribute information. If their position has changed by some significant amount, include them in a report for possible over/under provisioning
 
             - Report on any identities which have suddenly gained significant privileged permissions
@@ -68,7 +77,7 @@ TODO:
         - Insights:
             - How to incorporate BloodHound to identify privileged escaltation and travel in data? 
 
-    - Have a second drop down menu which allows for sub categories to be selected
+    - Change the permissions dataframe to be multi-index
 
     - Create new test data sets 
         - Create for a small testing set and a LARGE validation/demonstration set
@@ -91,4 +100,12 @@ TODO:
     - Add formatting so it looks like PwC product
 
     - ? Create sliding k-means clustering algorithm
+		    
+    - Monitor the level of risk in the permission space, a 2D graph just tracking overall spread and when it reaches a certain threshold it will be obvious
+
+        - Maybe don't monitor everything, just key roles?
+
+    - Create and visualise the idealised roles in the graph. How can the clustering and outlier information then be applied for this idealised role
+
+    - 
         
