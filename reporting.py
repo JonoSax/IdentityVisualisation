@@ -104,8 +104,8 @@ class Metrics:
             df[["_DateTime"]] = df[["_DateTime"]].astype(int)
 
         # remove spacing from the dataframe column names
-        formatColumns = [r.replace(" ", "") for r in list(df.columns)]
-        df = df.set_axis(formatColumns, axis=1, inplace=False)
+        # formatColumns = [r.replace(" ", "") for r in list(df.columns)]
+        # df = df.set_axis(formatColumns, axis=1, inplace=False)
 
         return df
 
@@ -1069,10 +1069,68 @@ def report_2(
 def report_3(plotIDdf, permissions, uiddf, attribute, hover_data, reportName):
 
     """
-    Report on the trend of identity permissions within each element
+    Report on the trend of individual identity permissions within each element
     """
 
+    select_data = [h for h in hover_data if h.find("DateTime") == -1]
+
+    # plotIDdf.sort_values("_DateTime", inplace=True)
+    idAttrRep = pd.DataFrame(None)
+    idPermRep = pd.DataFrame(None)
+    for id in plotIDdf[uiddf].unique():
+
+        # assess the change in attribute information
+        idIDdf = plotIDdf[plotIDdf[uiddf] == id][["_DateTime"] + select_data]
+        idAttrRep = pd.concat([monitor_change(idIDdf, id), idAttrRep])
+
+        # assess the change in permission information
+        idPermdf = permissions.loc[id].sort_index()
+        idMatrix = idPermdf.to_numpy()
+        permChanges = idPermdf.loc[:, ~(idMatrix[0] == idMatrix).all(0)].reset_index()
+        idPermRep = pd.concat([idPermRep, monitor_change(permChanges, id)])
+
     pass
+
+
+def monitor_change(dfData, id, dtAttr="_DateTime"):
+
+    """
+    From a dataframe with time and the measured element, report on what changed and when
+
+    dfData (pd.DataFarme): datafarme containing the identity data. The first column MUST contain the _DateTime information and all subsequent columns containing the information which is being monitored
+
+    id (str): string which describes the unique identifier for this change monitoring
+
+    dtAttr (str): attribute value which describes the datetime used
+    """
+
+    # if the time named attribute is not in the first column then move it
+    if dtAttr != dfData.columns[0]:
+        dfDataCols = [dtAttr] + list(dfData.columns).remove(dtAttr)
+        dfData = dfData[dfDataCols]
+
+    dfStore = pd.DataFrame(None, columns=["id", "value", "ele0", "ele1", "dt0", "dt1"])
+
+    timeAttr, *values = dfData.columns
+    dfData.sort_values(timeAttr, inplace=True)
+    for value in values:
+        # if the value is unique for all time periods, don't loop through
+        if len(set(dfData[value])) == 1:
+            continue
+
+        # if there are multiple values along the time periods, loop through and identity when and what changed
+        cDt, cEle = dfData[[timeAttr, value]].iloc[0]
+        for _, (nDt, nEle) in dfData[[timeAttr, value]][1:].iterrows():
+            if nEle != cEle:
+
+                # report the value, current element, new element, current datetime of the new element and the datetime which the current datetime was FIRST detected
+                dfStore.loc[len(dfStore)] = [id, value, cEle, nEle, cDt, nDt]
+
+                # if the element has changed, update the
+                cEle = nEle
+                cDt = nDt
+
+    return dfStore
 
 
 if __name__ == "__main__":
