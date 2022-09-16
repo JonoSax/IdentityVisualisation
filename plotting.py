@@ -13,7 +13,11 @@ from utilities import *
 
 
 def track_elements(
-    dfIDIncl: pd.DataFrame, uidAttr: str, attribute: str, hover_data: list
+    dfIDIncl: pd.DataFrame,
+    uidAttr: str,
+    attribute: str,
+    hover_data: list,
+    colourDict: dict,
 ):
 
     """
@@ -43,16 +47,17 @@ def track_elements(
     allSizes = np.linspace(4, 12, len(allTimes)).astype(int)
 
     fig = go.Figure()
-    colourDict = {}
+    customColourDict = {}
 
     # create a dictionary to colour the traces depending on the attribute and time of the data
     transparency = np.linspace(0.4, 1, len(allTimes))
-    for n_c, c in enumerate(sorted(dfIDIncl[attribute].unique())):
-        colourDict[str(c)] = {}
+    for _, c in enumerate(sorted(dfIDIncl[attribute].unique())):
+        customColourDict[str(c)] = {}
         for n_a, a in enumerate(allTimes):
-            colourDict[str(c)][
+
+            customColourDict[str(c)][
                 a
-            ] = f"rgba{tuple(np.append(hex_to_rgb(colours.Plotly[n_c%len(colours.Plotly)]), transparency[n_a]))}"
+            ] = f"rgba{tuple(np.append(hex_to_rgb(colourDict[c]), transparency[n_a]))}"
 
     # create the size dictionary
     timeDict = {}
@@ -79,9 +84,9 @@ def track_elements(
                     ]
                 )
 
-        hover_data = ["Count", attribute, "_PermissionDateTime"]
+        custom_hover_data = ["Count", attribute, "_PermissionDateTime"]
         dfTrack = pd.DataFrame(
-            data, columns=["Dim0", "Dim1", "Dim2", "_DateTime"] + hover_data
+            data, columns=["Dim0", "Dim1", "Dim2", "_DateTime"] + custom_hover_data
         )
         dfTrack = dfTrack.combine_first(pd.DataFrame(columns=dfIDIncl.columns))
         elements = dfTrack[attribute].unique()
@@ -94,12 +99,12 @@ def track_elements(
 
     dfTrack = dfTrack.sort_values("_DateTime")
 
-    for ele in elements:
+    for ele in sorted(elements):
         # get all the unique entries for this unique identity
         uiddf = dfTrack[dfTrack[attribute] == ele]
 
         selected_colours = [
-            colourDict[attr][unix]
+            customColourDict[attr][unix]
             for attr, unix in zip(uiddf[attribute], uiddf["_DateTime"])
         ]
         selected_sizes = [timeDict[t] for t in uiddf["_DateTime"]]
@@ -112,16 +117,15 @@ def track_elements(
                 x=uiddf["Dim0"],
                 y=uiddf["Dim1"],
                 z=uiddf["Dim2"],
-                customdata=uiddf[hover_data],
-                hovertemplate=f"<b>Grouping: {ele}</b><br><i>%{'{customdata[0]}'}</i><br><br>"
+                customdata=uiddf[custom_hover_data],
+                hovertemplate=f"<b>Grouping: {ele}</b><br>"
+                + f"<i>Identity count: %{'{customdata[0]}'}</i><br><br>"
                 + "<br>".join(
                     [
                         f"{h}: %{'{customdata['+str(n)+']}'}"
-                        for n, h in enumerate(hover_data)
+                        for n, h in enumerate(custom_hover_data)
                     ]
                 ),
-                # hovertext =
-                # ['<br>'.join([f"{h}: {uiddf[h].iloc[n]}" for h in hover_data]) for n in range(len(uiddf))],
                 marker=dict(color=selected_colours, size=selected_sizes),
                 line=dict(color=selected_colours),
                 name=name,  # NOTE this must be a string/number
@@ -165,6 +169,7 @@ def cluster_identities(
     sliderDateValue: float,
     sliderRoundValue: float,
     sliderClusterValue: float,
+    colourDict: dict,
 ):
 
     """
@@ -246,6 +251,9 @@ def cluster_identities(
         dfPosExcl = pd.DataFrame(None, columns=dfPosIncl.columns)
 
     sizes = pd.concat([dfPosIncl["_Count"], dfPosExcl["_Count"]])
+    sizes[
+        len(sizes)
+    ] = 2.5  # this prevents the maximum size of the marker (40 pixels) form being met until there are at least that many identities in a cluster
 
     # filter out some of the clusters PER element
     if sliderClusterValue > 0:
@@ -260,14 +268,6 @@ def cluster_identities(
     # hover_data.append("_Count")
     hover_data = sorted(hover_data)
 
-    # create the colour dictionary to be used for all visualisation
-    colourDict = {}
-    for n_c, c in enumerate(
-        sorted(np.r_[dfIDIncl[attribute].unique(), dfIDExcl[attribute].unique()])
-    ):
-
-        colourDict[str(c)] = colours.Plotly[n_c % len(colours.Plotly)]
-
     # ------
     fig = px.scatter_3d(pd.DataFrame(None))
 
@@ -275,7 +275,7 @@ def cluster_identities(
     for ele in sorted(dfPosIncl[attribute].unique()):
         dfPosInclAttr = dfPosIncl[dfPosIncl[attribute] == ele]
         selected_sizes = [
-            int(np.ceil(c / sizes.max() * 40)) for c in dfPosInclAttr["_Count"]
+            int(np.ceil(c / sizes.max() * 50)) for c in dfPosInclAttr["_Count"]
         ]
         fig.add_scatter3d(
             connectgaps=False,
@@ -318,7 +318,10 @@ def cluster_identities(
                 z=dfPosExclAttr["Dim2"],
                 mode="markers",
                 marker=dict(
-                    color=colourDict[ele], size=selected_sizes, opacity=0.4
+                    color=colourDict[ele],
+                    size=selected_sizes,
+                    opacity=0.4,
+                    line=dict(width=1, color="white"),
                 ),  # exclude has a transparency of 0.5
                 hovertemplate=f"<b>Grouping: {ele}</b><br><br>"
                 + "<br>".join(
@@ -342,11 +345,17 @@ def cluster_identities(
 
     plotTitle = f"Plotting and overlaying {len(dfModIncl)} identities for {len(dfPosIncl)} clusters colored based on {attribute} with a spatial resolution of {sliderRoundValue} from {allTimesFormat[sliderDateValue]} {clusteringInfo}"
 
-    return fig, plotTitle
+    return fig, plotTitle, dfPosIncl, dfPosExcl
 
 
 def plot_identities(
-    dfIDIncl, dfIDExcl, uidAttr, attribute, hover_data, sliderDateValue
+    dfIDIncl: pd.DataFrame,
+    dfIDExcl: pd.DataFrame,
+    uidAttr: str,
+    attribute: str,
+    hover_data: list,
+    sliderDateValue: int,
+    colourDict: dict,
 ):
 
     """
@@ -368,7 +377,7 @@ def plot_identities(
     hover_data : list
         List of the attributes to include in the hoverdata from graphing
 
-    sliderDateValue : float
+    sliderDateValue : int
         Value of the slider data. Limits the process to the selected time period
     """
 
@@ -390,16 +399,8 @@ def plot_identities(
 
     allTimesFormat = dfIDIncl["_PermissionDateTime"].unique()
 
-    # create the colour dictionary to be used for all visualisation
-    colourDict = {}
-    for n_c, c in enumerate(
-        sorted(np.r_[dfIDIncl[attribute].unique(), dfIDExcl[attribute].unique()])
-    ):
-
-        colourDict[str(c)] = colours.Plotly[n_c % len(colours.Plotly)]
-
     # Remove the uid from the hoverdata so that it has to be explicitly included
-    fig = px.scatter_3d(pd.DataFrame(None))
+    fig = go.Figure()
 
     # the clusters to include
     for ele in sorted(dfTimeIncl[attribute].unique()):
@@ -412,9 +413,13 @@ def plot_identities(
             z=dfPosInclAttr["Dim2"],
             mode="markers",
             marker=dict(
-                color=colourDict[ele], opacity=1
+                color=colourDict[ele],
+                opacity=1,
+                size=10,
+                line=dict(width=1, color="white"),
             ),  # include has an opacity of 1
-            hovertemplate=f"<b>{uidAttr}: %{'{customdata['}{hover_data.index(uidAttr)}{']}'}</b><br><br>"
+            hovertemplate=f"<b>{attribute}: %{'{customdata['}{hover_data.index(attribute)}{']}'}</b><br>"
+            + f"<i>{uidAttr}: %{'{customdata['}{hover_data.index(uidAttr)}{']}'}</i><br><br>"
             + "<br>".join(
                 [
                     f"{h}: %{'{customdata['+str(n)+']}'}"
@@ -430,22 +435,23 @@ def plot_identities(
 
         # the clusters to include
         for ele in sorted(dfTimeExcl[attribute].unique()):
-            dfPosInclAttr = dfTimeExcl[dfTimeExcl[attribute] == ele]
+            dfPosExclAttr = dfTimeExcl[dfTimeExcl[attribute] == ele]
             fig.add_scatter3d(
                 connectgaps=False,
-                customdata=dfPosInclAttr[[uidAttr] + hover_data],
-                x=dfPosInclAttr["Dim0"],
-                y=dfPosInclAttr["Dim1"],
-                z=dfPosInclAttr["Dim2"],
+                customdata=dfPosExclAttr[hover_data],
+                x=dfPosExclAttr["Dim0"],
+                y=dfPosExclAttr["Dim1"],
+                z=dfPosExclAttr["Dim2"],
                 mode="markers",
                 marker=dict(
                     color=colourDict[ele], opacity=0.4
                 ),  # exclude has an opacity of 0.4
-                hovertemplate=f"<b>{uidAttr}: %{'{customdata[0]}'}</b><br><br>"
+                hovertemplate=f"<b>{attribute}: %{'{customdata['}{hover_data.index(attribute)}{']}'}</b><br>"
+                + f"<i>{uidAttr}: %{'{customdata['}{hover_data.index(uidAttr)}{']}'}</i><br><br>"
                 + "<br>".join(
                     [
                         f"{h}: %{'{customdata['+str(n)+']}'}"
-                        for n, h in enumerate(hover_data, 1)
+                        for n, h in enumerate(hover_data)
                     ]
                 ),
                 legendgroup=f"{ele} Excluded",
@@ -453,31 +459,68 @@ def plot_identities(
                 hoverlabel=dict(namelength=0),
             )
 
-    fig.data = fig.data[1:]
     plotTitle = f"Plotting {len(dfTimeIncl)} identities colored based on {attribute} with full identity information from {allTimesFormat[sliderDateValue]}"
 
-    return fig, plotTitle
+    return fig, plotTitle, dfTimeIncl, dfTimeExcl
 
 
-def add_roles(fig: go, dfRole: pd.DataFrame, uidAttr: str):
+def plot_roles(
+    fig: go,
+    dfIDIncl: pd.DataFrame,
+    dfIDExcl: pd.DataFrame,
+    dfRole: pd.DataFrame,
+    uidAttr: str,
+    roleAttr: str,
+    plotRelations: bool,
+    colourDict: dict,
+):
 
-    dfRoleInfo = dfRole[[uidAttr, "Dim0", "Dim1", "Dim2"]]
+    """
+    Plot the volume of the roles to visualise the overlap of role identities
+    """
 
-    for role in sorted(dfRoleInfo[uidAttr].unique()):
+    for role in sorted(dfRole[uidAttr].unique()):
 
-        dfRole = dfRoleInfo[dfRoleInfo[uidAttr] == role]
+        dfR = dfRole[dfRole[uidAttr] == role]
+        dfIDRole = dfIDIncl[dfIDIncl[roleAttr] == role]
 
         fig.add_scatter3d(
-            customdata=dfRoleInfo[uidAttr],
-            x=dfRole["Dim0"],
-            y=dfRole["Dim1"],
-            z=dfRole["Dim2"],
+            customdata=dfR[uidAttr],
+            x=dfR["Dim0"],
+            y=dfR["Dim1"],
+            z=dfR["Dim2"],
             mode="markers",
-            marker=dict(opacity=1, symbol="diamond", size=10),
+            marker=dict(color=colourDict[role], opacity=1, symbol="diamond", size=10),
             hovertemplate=f"<b>Role: {role}</b><br>",
             legendgroup=role,
             name=role,
             hoverlabel=dict(namelength=0),
         )
+
+        # if there is corresponding role information
+        if role in list(dfIDRole[roleAttr]) and plotRelations:
+
+            dfR = pd.concat([dfR] * len(dfIDRole))
+            dfIDRole["_ORDER"] = np.arange(0, len(dfIDRole) * 2, 2)
+            dfR["_ORDER"] = np.arange(1, len(dfIDRole) * 2, 2)
+            dfLineInfo = pd.concat([dfIDRole, dfR])
+            dfLineInfo.sort_values("_ORDER", inplace=True)
+
+            fig.add_trace(
+                go.Scatter3d(
+                    x=dfLineInfo["Dim0"],
+                    y=dfLineInfo["Dim1"],
+                    z=dfLineInfo["Dim2"],
+                    marker=dict(size=0),
+                    line=dict(color=colourDict[role]),
+                    hovertemplate=f"Role: {role}",
+                    # hoverinfo="none",
+                    # name=roleName,  # NOTE this must be a string/number
+                    hoverlabel=dict(namelength=0),
+                )
+            )
+
+            # Don't include the legend of the line plots
+            fig.data[-1].showlegend = False
 
     return fig
