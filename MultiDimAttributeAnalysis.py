@@ -9,7 +9,10 @@ from glob import glob
 # https://dash.plotly.com/interactive-graphing
 
 
-# ---------- MDS calculations ----------
+"""
+TODO
+    - Move the process of the CSVs into the dataModel object. The file specific object should ONLY read in the data to the expected data format and the dataModel object should do the processing, pivot tables etc.
+"""
 
 # read the sheet data from the excel sheet and get header/info
 class ExcelData(DataModel):
@@ -265,6 +268,7 @@ class CSVData(DataModel):
         identityKey: str,
         permissionKey: str,
         permissionValue: str,
+        roleKey=None,
         limitData=None,
     ):
 
@@ -298,6 +302,9 @@ class CSVData(DataModel):
         permissionValue : str
             The columns value used to model the relationships between the identities
 
+        roleKey : str
+            The column value used to identity the identities roles
+
         limitData : int, default = None (load all files available)
             The maximum number of historical files to process.
 
@@ -313,6 +320,7 @@ class CSVData(DataModel):
         self.rolePath = rolePath
         self.joinKeys["identity"] = identityKey
         self.joinKeys["permission"] = permissionKey
+        self.joinKeys["role"] = roleKey
         self.permissionValue = permissionValue
 
         self.getIdentityData()
@@ -330,33 +338,28 @@ class CSVData(DataModel):
             glob(self.identityPath), reverse=False
         )  # get up to the 5 most recent files
         iAll = None
-        if len(dataPaths) > 1:
-            for path in dataPaths:
-                date = path.split("_")[-1].split(".")[0]
-                iStore = pd.read_csv(path, dtype=str).dropna(how="all")
-                iStore["_DateTime"] = date  # this is only needed for the pivot table
+        for path in dataPaths:
+            date = path.split("_")[-1].split(".")[0]
+            iStore = pd.read_csv(path, dtype=str).dropna(how="all")
+            iStore["_DateTime"] = date  # this is only needed for the pivot table
 
-                if iAll is None:
-                    iAll = iStore
-                else:
-                    iAll = pd.concat([iAll, iStore])
+            if iAll is None:
+                iAll = iStore
+            else:
+                iAll = pd.concat([iAll, iStore])
 
-        else:
-            iAll = pd.read_csv(dataPaths[0], dtype=str).dropna(how="all")
-            date = dataPaths[0].split("_")[-1].split(".")[0]
-            iAll["_DateTime"] = date
-
-        self.identityData = iAll.sort_values([self.joinKeys["identity"], "_DateTime"])
+        self.rawIdentityData = iAll.sort_values(
+            [self.joinKeys["identity"], "_DateTime"]
+        )
 
     def getPermissionData(self, limit):
 
         """
-        Process the raw permission data
+        extract the raw permission data
         """
 
         # Read in all permission data which is stored from the wildcard search
         pAll = None
-        idSelect = list(self.identityData[self.joinKeys["identity"]].unique())
         dataPaths = sorted(
             glob(self.permissionPath), reverse=False
         )  # get up to the 5 most recent files
@@ -365,22 +368,12 @@ class CSVData(DataModel):
 
         # read in multiple files and combine. This assumes that multiple files with the same
         # key name are temporal versions of the information
-        pivotSelect = f"{self.joinKeys['permission']}_DateTime"
         for path in dataPaths:
-            date = path.split("_")[-1].split(".")[
-                0
-            ]  # get the information from the file name
+            unixTime = int(
+                path.split("_")[-1].split(".")[0]
+            )  # get the date information from the file name
             pStore = pd.read_csv(path, dtype=str).dropna(how="all")
-
-            # this is joining the identity and permission data as only the identities in the
-            # identityData are INCLUDED in the permission data.
-            # If the identity is present for any time extract in the identity data then it
-            # will be included from all permission data
-            pStore = pStore[pStore[self.joinKeys["permission"]].isin(idSelect)]
-            pStore[pivotSelect] = (
-                pStore[self.joinKeys["permission"]] + f"_{date}"
-            )  # this is only needed for the pivot table
-            # pStore["_DateTime"] = f"_{date}"
+            pStore["_DateTime"] = unixTime
 
             # remove any duplicate entries of the access and the identity
             if pAll is None:
@@ -389,42 +382,12 @@ class CSVData(DataModel):
                 pAll = pd.concat([pAll, pStore])
 
         pAll.drop_duplicates(
-            subset=[self.permissionValue, pivotSelect], inplace=True, keep="first"
+            subset=[self.permissionValue, self.joinKeys["permission"], "_DateTime"],
+            inplace=True,
+            keep="first",
         )
 
-        # perform a pivot of the raw csv data to create a sparse matrix of occurence
-        headers = list(pAll.columns.unique())
-        headers.remove(self.joinKeys["permission"])
-        headers.remove(self.permissionValue)
-        pivot = pd.pivot_table(
-            pAll,
-            values=[headers[0]],
-            columns=[pivotSelect],
-            index=[self.permissionValue],
-            aggfunc="count",
-            fill_value=0,
-        )
-
-        pivot.columns = pivot.columns.droplevel(0)
-        pivot = pivot.reset_index()
-        pivot = pivot.set_index(self.permissionValue)
-
-        if pivotSelect != self.joinKeys["permission"]:
-            self.categoriesHeader = [self.joinKeys["permission"], "_DateTime"]
-            self.categories = np.c_[[p.split("_") for p in pivot.columns]]
-
-        else:
-            self.categoriesHeader = [self.joinKeys["permission"]]
-            self.categories = np.c_[pivot.columns]
-
-        self.rawPermissionData = pd.DataFrame(pivot).T  # np.transpose(pivot.to_numpy())
-        self.rawPermissionData[[self.joinKeys["identity"], "_DateTime"]] = [
-            i.split("_") for i in self.rawPermissionData.index
-        ]
-        self.rawPermissionData.set_index(
-            [self.joinKeys["identity"], "_DateTime"], inplace=True
-        )
-        self.processingType = self.processType("Identity")
+        self.rawPermissionData = pAll
 
     def getPrivilegedData(self):
 
@@ -436,8 +399,6 @@ class CSVData(DataModel):
             self.privilegedData = pd.read_csv(self.privilegedPath, dtype=str).dropna(
                 how="all"
             )
-        else:
-            self.privilegedData = pd.DataFrame(None)
 
     def getRoleData(self):
 
@@ -446,7 +407,7 @@ class CSVData(DataModel):
         """
 
         if self.rolePath is not None:
-            self.roleData = pd.read_csv(self.rolePath, dtype=str).dropna(how="all")
+            self.rawRoleData = pd.read_csv(self.rolePath, dtype=str).dropna(how="all")
 
 
 # ----------- Data processing and visualisation (main function) ----------
@@ -488,7 +449,7 @@ def csvData():
 
     identityPath = "data\\IdentityPermissionCreepTest\\IdentitiesFake_*.csv"
     permissionPath = "data\\IdentityPermissionCreepTest\\Full\\EntitlementsFake_*.csv"
-    limitData = 4
+    limitData = 1
     permissionPath = (
         "data\\IdentityPermissionCreepTest\\Small\\EntitlementsFake50_*.csv"
     )
@@ -510,6 +471,7 @@ def csvData():
         "Username",
         "Identity",
         "Value",
+        "Role division",
         limitData=limitData,
     )
     csvData.processData(forceRecalculate)
