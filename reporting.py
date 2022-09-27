@@ -4,6 +4,8 @@ import pandas as pd
 from time import localtime, strftime
 from openpyxl import Workbook
 from utilities import *
+import random
+
 
 pd.options.mode.chained_assignment = None
 
@@ -168,6 +170,7 @@ class Metrics:
                     ["Dim0", "Dim1", "Dim2", self.key, "_DateTime", a]
                 ]
 
+                # NOTE the getTime ALWAYS takes the most recent time information so that the comparsions are made with the most recent data
                 centrePoint = np.median(
                     dfAttr[dfAttr["_DateTime"] == self.getTime(dfAttr)][
                         ["Dim0", "Dim1", "Dim2"]
@@ -379,7 +382,9 @@ def report_1(
         - AllInformation,       contains all the detailed information which was used for the calculation the previous sheets
         - Reference,            notes to explain what information is being provided
 
-    # NOTE is a sunburst chart useful? https://plotly.com/python/sunburst-charts/
+    NOTE is a sunburst chart useful? https://plotly.com/python/sunburst-charts/
+
+    NOTE see https://dash.plotly.com/background-callbacks for how to run a callback in the background with visual ques and enable the cancellation of callbacks if it takes too long, progress bar etc
 
     """
 
@@ -1070,9 +1075,35 @@ def report_3(plotIDdf, permissions, uiddf, attribute, hover_data, reportName):
 
     """
     Report on the trend of individual identity permissions within each element
+
+    Sheet layout:
+        - Permission changes
+            - Each permission that has been added/removed across all identities
+            - The number that have been added/removed
+            - The specific identities that have been added/removed
+            - The break down of attributes that have had it added/removed
+
+        - Attribute changes
+            -
+
+    - Get every unique permission that has been changed and report on the individuals who have got/lost it
+
+    - Get every unique attribute that has been changed and report on what has changed
+
     """
 
     select_data = [h for h in hover_data if h.find("DateTime") == -1]
+
+    plotIDdf = add_random_changes(
+        plotIDdf,
+        cols=[
+            "Department",
+            "Functional Division",
+            "Group Division",
+            "Job Profile",
+            "Management Level",
+        ],
+    )
 
     # plotIDdf.sort_values("_DateTime", inplace=True)
     idAttrRep = pd.DataFrame(None)
@@ -1089,7 +1120,101 @@ def report_3(plotIDdf, permissions, uiddf, attribute, hover_data, reportName):
         permChanges = idPermdf.loc[:, ~(idMatrix[0] == idMatrix).all(0)].reset_index()
         idPermRep = pd.concat([idPermRep, monitor_change(permChanges, id)])
 
-    pass
+    # create a chord diagram of the changes in attributes
+    attrGroups = (
+        idAttrRep.groupby(["ele0", "ele1"])
+        .agg({"value": lambda x: list(set(x))[0], "id": "count"})
+        .sort_values("id")
+    )
+
+    """
+    # Creat a Chord diagram 
+    # NOTE this is not working....
+    eleCats = sorted(
+        list(
+            set(
+                [
+                    item
+                    for t in attrGroups["value"][attrGroups["value"] == attribute].index
+                    for item in t
+                ]
+            )
+        )
+    )
+    eleLabels = sorted([f"{e}_From" for e in eleCats] + [f"{e}_To" for e in eleCats])
+    eleMove = pd.DataFrame(0, index=eleLabels, columns=eleLabels)
+    # create the movement matrix
+    for eleFrom in eleCats:
+        attrTo = attrGroups.loc[eleFrom]
+
+        for eleTo in attrTo.index:
+            eleMove.loc[f"{eleFrom}_From", f"{eleTo}_To"] = attrTo.loc[eleTo]["id"]
+            eleMove.loc[f"{eleTo}_To", f"{eleFrom}_From"] = attrTo.loc[eleTo]["id"]
+    
+    a = holoviews.Chord(eleMove.values)
+    holoviews.save(a, "out.html")
+
+    # insert the chord diagram into the outputted excel doc
+    wb = openpyxl.Workbook()
+    ws = wb.worksheets[0]
+    img = openpyxl.drawing.image.Image('test.jpg')
+    img.anchor = 'A1'
+    ws.add_image(img)
+    wb.save('out.xlsx')
+    """
+
+
+def save_selected_information(selectIDdf, permdf, uiddf, filePath):
+
+    """
+    Save the selected information
+
+    iddf, identity dataframe
+
+    permdf, permission dataframe
+
+    Sheets:
+        Identities: the identities and all their attributes
+        Permissions: the identities and all their permissions
+    """
+
+    wb = Workbook()
+    del wb["Sheet"]
+
+    # --------------- Identities sheet ---------------
+
+    wsIdentities = wb.create_sheet("Identities")
+    wsIdentities.cell(row=1, column=1).value = "Selected identities"
+
+    rowNo = np.array(3)
+    addToReport(wsIdentities, selectIDdf.columns, rowNo)
+    for _, idInfo in selectIDdf.iterrows():
+        addToReport(wsIdentities, idInfo, rowNo)
+
+    # --------------- Permissions sheet ---------------
+
+    wsPermissions = wb.create_sheet("Permissions")
+    wsPermissions.cell(row=1, column=1).value = "Permissiosn of the identity"
+    rowNo = np.array(3)
+
+    # get the datetime of the identities in the form for the permission dataframe
+    selectdt = list(set(selectIDdf["_PermissionDateTime"]))[-1]
+    dt = [
+        dt
+        for dt in list(set(permdf.index.get_level_values(1)))
+        if create_datetime(dt) == selectdt
+    ][0]
+
+    # get all the permissions of the selected identities
+    permsID = permdf.loc[(selectIDdf[uiddf].tolist(), dt), :].T
+    permsID = permsID[np.sum(permsID, 1) > 0]
+
+    addToReport(wsPermissions, permsID.columns.get_level_values(0), rowNo, colStart=2)
+    addToReport(wsPermissions, ["Accesses"] + [selectdt] * len(permsID.columns), rowNo)
+    for perm, idInfo in permsID.iterrows():
+        addToReport(wsPermissions, [perm] + list(idInfo), rowNo)
+
+    wb.save(filename=filePath)
 
 
 def monitor_change(dfData, id, dtAttr="_DateTime"):
@@ -1131,6 +1256,35 @@ def monitor_change(dfData, id, dtAttr="_DateTime"):
                 cDt = nDt
 
     return dfStore
+
+
+def add_random_changes(df: pd.DataFrame, num=100, cols=None):
+
+    """
+    Add random changes to the dataframe by replacing an existing value in a row with a randomally selected value in the same columns
+
+    num = the number of changes to make
+    cols = list of columns
+    """
+
+    if cols is None:
+        colPos = np.arange(len(df.columns))
+    else:
+        colList = list(df.columns)
+        colPos = []
+        for c in cols:
+            if c in colList:
+                colPos.append(list(df.columns).index(c))
+
+    for _ in range(num):
+        c = colPos[random.randint(0, len(colPos) - 1)]
+
+        r0 = random.randint(0, len(df) - 1)
+        r1 = random.randint(0, len(df) - 1)
+
+        df.iloc[r0, c] = df.iloc[r1, c]
+
+    return df
 
 
 if __name__ == "__main__":
