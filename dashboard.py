@@ -11,6 +11,7 @@ from textwrap import wrap
 import reporting
 from utilities import filterIdentityDataFrame, create_colour_dict
 from plotting import *
+from flask_caching import Cache
 
 pd.options.mode.chained_assignment = None
 
@@ -24,8 +25,11 @@ TODO
 
 # Theme stuff: https://dash.plotly.com/external-resources
 external_stylesheets = ["https://codepen.io/chriddyp/pen/bWLwgP.css"]
-# external_stylesheets = [open('assets\\bWLwgP.css', "r")]
 app = Dash(__name__)  # , external_stylesheets=external_stylesheets)
+
+cache = Cache(
+    app.server, config={"CACHE_TYPE": "filesystem", "CACHE_DIR": "cache-directory"}
+)
 
 
 def launchApp(dataModel: object):
@@ -83,7 +87,7 @@ def createInteractivePlot(dataModel: object):
 
         # convert the datetime object into a human readable time
         dfID["_PermissionDateTime"] = dfID["_DateTime"].apply(
-            lambda x: datetime.fromtimestamp(int(x)).strftime("%m/%d/%Y, %H:%M:%S")
+            lambda x: create_datetime(int(x))
         )
 
         # create the marks for the slider
@@ -93,7 +97,9 @@ def createInteractivePlot(dataModel: object):
         marks = {n: {"label": d} for n, d in enumerate(dtformat)}
         # marks = {n: {'label': d} for n, d in zip(dttimes, dtformat)}
 
-    attrArray = np.array([[r, len(dfID[r].unique())] for r in hover_data if r.find("DateTime") == -1])
+    attrArray = np.array(
+        [[r, len(dfID[r].unique())] for r in hover_data if r.find("DateTime") == -1]
+    )
     dropDownOpt = [
         f"{attr}: {idNo} elements"
         for attr, idNo in attrArray
@@ -233,22 +239,57 @@ def createInteractivePlot(dataModel: object):
                             html.Div(
                                 [
                                     html.Button(
-                                        "Trendline report", id="report_3", n_clicks=0
+                                        "BETA Identity changes report",
+                                        id="report_3",
+                                        n_clicks=0,
                                     ),
                                 ],
                                 style={"margin-left": "15px", "margin-top": "15px"},
                             ),
+                            # report3/time slider
+                            html.Div(
+                                # NOTE this is exactly the same as the date slide on the main graph EXCEPT it has an extra value which allows you to turn off the volume displayer (-1)
+                                [
+                                    dcc.Slider(
+                                        -1,
+                                        len(dtformat) - 1,
+                                        1,
+                                        value=-1,
+                                        # dttimes.min(), dttimes.max(),
+                                        # value = dttimes.max(),
+                                        marks={
+                                            n: {"label": d}
+                                            for n, d in enumerate(
+                                                ["Off"] + [""] * len(dtformat), -1
+                                            )
+                                        },
+                                        id="slider-meshtime",
+                                        disabled=False,
+                                        vertical=False,
+                                    ),
+                                    # html.Div(id='slider-output'),
+                                ],
+                                style={},
+                            ),
                             # report4 button
                             html.Div(
                                 [
-                                    html.Button("Report 4", id="report_4", n_clicks=0),
+                                    html.Button(
+                                        "BETA Privilegd Access",
+                                        id="report_4",
+                                        n_clicks=0,
+                                    ),
                                 ],
                                 style={"margin-left": "15px", "margin-top": "15px"},
                             ),
                             # report5 button
                             html.Div(
                                 [
-                                    html.Button("Report 5", id="report_5", n_clicks=0),
+                                    html.Button(
+                                        "BETA Rare Access report",
+                                        id="report_5",
+                                        n_clicks=0,
+                                    ),
                                 ],
                                 style={"margin-left": "15px", "margin-top": "15px"},
                             ),
@@ -260,7 +301,7 @@ def createInteractivePlot(dataModel: object):
             # first line of buttons below the plot
             html.Div(
                 [
-                    # toggle switch to change between tracking points and viewing historical data
+                    # toggle, tracking data
                     html.Div(
                         [
                             daq.ToggleSwitch(
@@ -276,6 +317,7 @@ def createInteractivePlot(dataModel: object):
                             "display": "inline-block",
                         },
                     ),
+                    # toggle, hover info
                     html.Div(
                         [
                             daq.ToggleSwitch(
@@ -290,6 +332,7 @@ def createInteractivePlot(dataModel: object):
                             "display": "inline-block",
                         },
                     ),
+                    # toggle, role surface
                     html.Div(
                         [
                             daq.ToggleSwitch(
@@ -433,6 +476,7 @@ def createInteractivePlot(dataModel: object):
 
 
 # plotly figure updates
+@cache.memoize()
 @app.callback(
     Output("plotly_figure", "figure"),
     Output("identitiesPlotted", "data"),
@@ -452,6 +496,7 @@ def createInteractivePlot(dataModel: object):
     Input("slider-dates", "value"),
     Input("slider-rounding", "value"),
     Input("slider-clustering", "value"),
+    Input("slider-meshtime", "value"),
 )
 def update_graph(
     figLayout,
@@ -469,6 +514,7 @@ def update_graph(
     sliderDateValue,
     sliderRoundValue,
     sliderClusterValue,
+    sliderMeshTimeValue,
 ):
 
     """
@@ -515,16 +561,26 @@ def update_graph(
     # ---------- Track attributes across the time inputs ----------
     if trackingToggle:
 
-        fig, plotTitle = track_elements(
-            dfIDIncl, uidAttr, attribute, hover_data, colour_dict[attribute]
+        """
+        fig, plotTitle, dfPlotIncl, dfPlotExcl = track_elements(
+            dfIDIncl, dfIDExcl, uidAttr, attribute, hover_data, colour_dict[attribute]
         )
+        """
 
-        dfPlotExcl = dfIDExcl
-        dfPlotIncl = dfIDIncl
+        fig, plotTitle, dfPlotIncl, dfPlotExcl = track_elements_dashboard(
+            dfIDIncl,
+            dfIDExcl,
+            uidAttr,
+            attribute,
+            hover_data,
+            sliderMeshTimeValue,
+            colour_dict,
+        )
 
     #  ---------- Cluster data around reduced spatial resolution ----------
     elif sliderRoundValue > 0:
 
+        """
         fig, plotTitle, dfPlotIncl, dfPlotExcl = cluster_identities(
             dfIDIncl,
             dfIDExcl,
@@ -536,10 +592,24 @@ def update_graph(
             sliderClusterValue,
             colour_dict[attribute],
         )
+        """
+
+        fig, plotTitle, dfPlotIncl, dfPlotExcl = cluster_identities_dashboard(
+            dfIDIncl,
+            dfIDExcl,
+            uidAttr,
+            attribute,
+            hover_data,
+            sliderDateValue,
+            sliderRoundValue,
+            sliderClusterValue,
+            colour_dict,
+        )
 
     # ---------- Plot the raw identity data ----------
     else:
 
+        """
         fig, plotTitle, dfPlotIncl, dfPlotExcl = plot_identities(
             dfIDIncl,
             dfIDExcl,
@@ -549,12 +619,22 @@ def update_graph(
             sliderDateValue,
             colour_dict[attribute],
         )
+        """
+
+        fig, plotTitle, dfPlotIncl, dfPlotExcl = plot_identities_dashboard(
+            dfIDIncl,
+            dfIDExcl,
+            uidAttr,
+            attribute,
+            hover_data,
+            sliderDateValue,
+            colour_dict,
+        )
 
     # ---------- Plot the role data ----------
     if len(dfRole) > 0:
 
-        # fig = add_roles(fig, dfID, dfRole, uidAttr, roleAttr)
-
+        """
         fig = plot_roles(
             fig,
             dfPlotIncl,
@@ -562,8 +642,21 @@ def update_graph(
             dfRole,
             uidAttr,
             roleAttr,
-            rolesurfaceToggle and not trackingToggle,   # link roles only if not tracking
+            rolesurfaceToggle and not trackingToggle,  # link roles only if not tracking
             colour_dict[roleAttr],
+        )
+        """
+
+        fig = plot_roles_dashboard(
+            fig,
+            dfIDIncl,
+            dfIDExcl,
+            dfRole,
+            uidAttr,
+            roleAttr,
+            rolesurfaceToggle,
+            trackingToggle,
+            colour_dict,
         )
 
     # ---------- Scale and format the plot ----------
@@ -621,12 +714,116 @@ def update_graph(
                 fCol = f"{f.hovertemplate[fStart:fEnd]}<br>"
                 f.hovertemplate = f.hovertemplate.replace(fCol, "")
 
+        # Remove the axis data
+        fig.update_layout(
+            scene=dict(
+                xaxis=dict(showticklabels=False, title=""),
+                yaxis=dict(showticklabels=False, title=""),
+                zaxis=dict(showticklabels=False, title=""),
+            )
+        )
+
     # re-load the figure with the previous camera angle
     if figLayout is not None:
         fig.layout.scene.camera = figLayout.get("scene.camera")
 
     print("     Plot updated\n")
     return fig, dfIDIncl.to_json(orient="split")
+
+
+"""
+Create dashboard specific functions for each of the plotting functions to allow for cache.memoize
+
+----------------------------------------------------------------------------
+"""
+
+
+@cache.memoize()
+def track_elements_dashboard(
+    dfIDIncl, dfIDExcl, uidAttr, attribute, hover_data, mesh_time_slider, colour_dict
+):
+
+    return track_elements(
+        dfIDIncl,
+        dfIDExcl,
+        uidAttr,
+        attribute,
+        hover_data,
+        mesh_time_slider,
+        colour_dict[attribute],
+    )
+
+
+@cache.memoize()
+def cluster_identities_dashboard(
+    dfIDIncl,
+    dfIDExcl,
+    uidAttr,
+    attribute,
+    hover_data,
+    sliderDateValue,
+    sliderRoundValue,
+    sliderClusterValue,
+    colour_dict,
+):
+
+    return cluster_identities(
+        dfIDIncl,
+        dfIDExcl,
+        uidAttr,
+        attribute,
+        hover_data,
+        sliderDateValue,
+        sliderRoundValue,
+        sliderClusterValue,
+        colour_dict[attribute],
+    )
+
+
+@cache.memoize()
+def plot_identities_dashboard(
+    dfIDIncl, dfIDExcl, uidAttr, attribute, hover_data, sliderDateValue, colour_dict
+):
+
+    return plot_identities(
+        dfIDIncl,
+        dfIDExcl,
+        uidAttr,
+        attribute,
+        hover_data,
+        sliderDateValue,
+        colour_dict[attribute],
+    )
+
+
+@cache.memoize()
+def plot_roles_dashboard(
+    fig,
+    dfPlotIncl,
+    dfPlotExcl,
+    dfRole,
+    uidAttr,
+    roleAttr,
+    rolesurfaceToggle,
+    trackingToggle,  # link roles only if not tracking
+    colour_dict,
+):
+
+    return plot_roles(
+        fig,
+        dfPlotIncl,
+        dfPlotExcl,
+        dfRole,
+        uidAttr,
+        roleAttr,
+        rolesurfaceToggle and not trackingToggle,  # link roles only if not tracking
+        colour_dict[roleAttr],
+    )
+
+
+"""
+----------------------------------------------------------------------------
+"""
 
 
 @app.callback(
@@ -798,9 +995,20 @@ def update_exit_button(click, pid):
 )
 def add_row(rows, hover_data, inputSelection):
 
+    """
+    Create a toggle which allows you to select the permissions of each identity selected
+    Make the identities selected draggable
+    On the graph make the identities standout
+        Might need to make a callback with just the figure output and what happens is there is another callback which is called containing a dictionary with all the relevant variables to create/update the graph as necessary
+    """
+
     # if there is no input exit
     if inputSelection is None:
         # rows = None
+        return rows
+
+    # if there is no custom data
+    if inputSelection["points"][0].get("customdata") is None:
         return rows
 
     # extract the data
@@ -845,8 +1053,9 @@ def remove_rows(previous):
     Input("submit_file", "n_clicks"),
     State("selected_points_table", "data"),
     State("input_filename", "value"),
+    State("uidAttr", "data"),
 )
-def save_file(click, tab_data, filename):
+def save_file(click, tab_data, filename, uiddf):
 
     # Save data as long as there is information etc
     if not click:
@@ -857,11 +1066,17 @@ def save_file(click, tab_data, filename):
         placeholder = "Set file name"
 
     else:
-        fileName = f"{os.path.expanduser('~')}\\Downloads\\{filename}.csv"
-        if not os.path.exists(fileName):
-            pd.DataFrame.from_records(tab_data).to_csv(fileName, index=False)
+
+        filePath = f"{os.path.expanduser('~')}\\Downloads\\{filename}.xlsx"
+        if not os.path.exists(filePath):
+
+            permData = dfPerm_g.copy()
+            selectedIDdf = pd.DataFrame.from_records(tab_data)
+
+            reporting.save_selected_information(selectedIDdf, permData, uiddf, filePath)
+
             placeholder = "File saved"
-            print(f"     File saved at {fileName}")
+            print(f"     File saved at {filePath}")
         else:
             placeholder = "File exists"
 
@@ -880,6 +1095,7 @@ def save_file(click, tab_data, filename):
     Output("slider-dates", "disabled"),
     Output("slider-rounding", "disabled"),
     Output("slider-clustering", "disabled"),
+    Output("slider-meshtime", "disabled"),
     Input("toggle-timeseries", "value"),
     Input("toggle-hoverinfo", "value"),
     Input("toggle-rolesurface", "value"),
@@ -906,6 +1122,7 @@ def update_output(
     sliderDateDisabled = False
     sliderRoundDisabled = False
     sliderClusterDisabled = False
+    sliderMeshTimeDisabled = True
 
     """
     If displaying time tracking data then:
@@ -913,6 +1130,7 @@ def update_output(
         - No rounding of data 
         - No clustering of data
         - No role surface creation 
+        - Enable the mesh time selection slider
     """
     if toggleTimeSeriesValue:
         toggleTimeSeries = "Tracking data"
@@ -920,6 +1138,7 @@ def update_output(
         sliderRoundDisabled = True
         sliderClusterDisabled = True
         roleSurfaceInfoDisabled = True
+        sliderMeshTimeDisabled = False
 
     """
     If there is no rounding being performed:
@@ -953,6 +1172,7 @@ def update_output(
         sliderDateDisabled,
         sliderRoundDisabled,
         sliderClusterDisabled,
+        sliderMeshTimeDisabled,
     )
 
 
@@ -985,7 +1205,7 @@ def update_buttons(sliderRounding, sliderClustering, trackingToggle):
     report2_child = "Cluster Report"
     report2_disabled = False
 
-    report3_child = "Trendline Report"
+    report3_child = "BETA Identity changes report"
     report3_disabled = False
 
     if sliderRounding > 0 or trackingToggle:
