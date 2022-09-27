@@ -304,13 +304,7 @@ class DataModel(object):
                 identityExtract = identityExtract.sort_values("_DateTime")
                 identityExtract["_IdentityDateTime"] = identityExtract[
                     "_DateTime"
-                ].apply(
-                    lambda x: datetime.fromtimestamp(int(x)).strftime(
-                        "%m/%d/%Y, %H:%M:%S"
-                    )
-                    if x > 0
-                    else None
-                )
+                ].apply(lambda x: create_datetime(x) if x > 0 else None)
                 # match for identity extracts with the closest in time to the entitlement extract. If there is no identity matched then the individual who is modelled will still be included (this is a left join), however they will have not associated identity data.
                 # NOTE a tolerance of a week, tolerance = 604800
                 posdf = pd.merge_asof(
