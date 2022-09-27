@@ -14,9 +14,11 @@ from utilities import *
 
 def track_elements(
     dfIDIncl: pd.DataFrame,
+    dfIDExcl: pd.DataFrame,
     uidAttr: str,
     attribute: str,
     hover_data: list,
+    mesh_time_slider: int,
     colourDict: dict,
 ):
 
@@ -37,6 +39,9 @@ def track_elements(
 
     hover_data : list
         List of the attributes to include in the hoverdata from graphing
+
+    mesh_time_slider: int
+        The value of the slider-meshtime object to select/turn off the mesh viewing
     """
 
     print(f"     Tracking historical data with 3D plotting for {attribute}")
@@ -64,14 +69,16 @@ def track_elements(
     for t, s in zip(allTimes, allSizes):
         timeDict[t] = s
 
-    # Combine the individual positions and take the median positions of all identities for the particular
-    # attribute and dates if the attribute selected is not the unique identifier
+    # Combine the individual positions and take the median positions of all identities for the particular attribute and dates if the attribute selected is not the unique identifier
     if attribute != uidAttr:
         allAttrs = dfIDIncl[attribute].unique()
         data = []
         for attr in allAttrs:
             dfAttrId = dfIDIncl[dfIDIncl[attribute] == attr]
             for dt in allTimes:
+
+                # spread = get_identity_spread(dfAttrId[dfAttrId["_DateTime"] == dt])
+
                 data.append(
                     [
                         np.median(dfAttrId[dfAttrId["_DateTime"] == dt]["Dim0"]),
@@ -80,7 +87,7 @@ def track_elements(
                         dt,
                         len(dfAttrId[dfAttrId["_DateTime"] == dt]),
                         attr,
-                        datetime.fromtimestamp(int(dt)).strftime("%m/%d/%Y, %H:%M:%S"),
+                        create_datetime(int(dt)),
                     ]
                 )
 
@@ -97,27 +104,33 @@ def track_elements(
         dfTrack = dfIDIncl
         elements = dfIDIncl[attribute].unique()
 
-    dfTrack = dfTrack.sort_values("_DateTime")
+    # plot the volumetric area encomapssing all identities for the given selected time if mesh_time_slider is -1 then this means there is to be NO plotting of the mesh
+    if mesh_time_slider == -1:
+        timeSelect = -1
+    else:
+        timeSelect = sorted(dfIDIncl["_DateTime"].unique())[mesh_time_slider]
 
+    dfTrack = dfTrack.sort_values("_DateTime")
     for ele in sorted(elements):
+        # ----------------- Track elements -----------------
         # get all the unique entries for this unique identity
-        uiddf = dfTrack[dfTrack[attribute] == ele]
+        eletrdf = dfTrack[dfTrack[attribute] == ele]
 
         selected_colours = [
             customColourDict[attr][unix]
-            for attr, unix in zip(uiddf[attribute], uiddf["_DateTime"])
+            for attr, unix in zip(eletrdf[attribute], eletrdf["_DateTime"])
         ]
-        selected_sizes = [timeDict[t] for t in uiddf["_DateTime"]]
+        selected_sizes = [timeDict[t] for t in eletrdf["_DateTime"]]
         # set the colours so that the newest data pont is 100% opacity and the oldest data point is 40% opacity
-        name = [u for u in uiddf[attribute] if u != "None"][0]
+        name = [u for u in eletrdf[attribute] if u != "None"][0]
 
         # doco: https://plotly.github.io/plotly.py-docs/generated/plotly.graph_objects.Scatter3d.html
         fig.add_trace(
             go.Scatter3d(
-                x=uiddf["Dim0"],
-                y=uiddf["Dim1"],
-                z=uiddf["Dim2"],
-                customdata=uiddf[custom_hover_data],
+                x=eletrdf["Dim0"],
+                y=eletrdf["Dim1"],
+                z=eletrdf["Dim2"],
+                customdata=eletrdf[custom_hover_data],
                 hovertemplate=f"<b>Grouping: {ele}</b><br>"
                 + f"<i>Identity count: %{'{customdata[0]}'}</i><br><br>"
                 + "<br>".join(
@@ -135,6 +148,22 @@ def track_elements(
             )
         )
 
+        fig.data[-1].marker.size = (10,)
+        fig.data[-1].marker.color = colourDict[ele]
+
+        # --------------- Volumetric area ----------------
+        uidVolDf = dfIDIncl[
+            (dfIDIncl[attribute] == ele) & (dfIDIncl["_DateTime"] == timeSelect)
+        ]
+
+        if len(uidVolDf) == 0:
+            continue
+
+        fig = mesh_layers(fig, uidVolDf, colourDict, ele)
+
+    # for missing datapoints, connect traces
+    # fig.update_traces(connectgaps=True)
+
     plotTitle = f"Tracking {len(elements)} identities grouped by {attribute} from {allTimesFormat[0]} to {allTimesFormat[-1]}"
 
     # remove duplicate legend entries
@@ -147,9 +176,6 @@ def track_elements(
         else names.add(trace.name)
     )
 
-    # for missing datapoints, connect traces
-    fig.update_traces(connectgaps=True)
-
     # see legend doco: https://plotly.com/python/reference/layout/#layout-legend
     fig.update_layout(
         legend=dict(
@@ -157,7 +183,7 @@ def track_elements(
         )
     )
 
-    return fig, plotTitle
+    return fig, plotTitle, dfIDIncl, dfIDExcl
 
 
 def cluster_identities(
@@ -506,21 +532,52 @@ def plot_roles(
             dfLineInfo = pd.concat([dfIDRole, dfR])
             dfLineInfo.sort_values("_ORDER", inplace=True)
 
-            fig.add_trace(
-                go.Scatter3d(
-                    x=dfLineInfo["Dim0"],
-                    y=dfLineInfo["Dim1"],
-                    z=dfLineInfo["Dim2"],
-                    marker=dict(size=0),
-                    line=dict(color=colourDict[role]),
-                    hovertemplate=f"Role: {role}",
-                    # hoverinfo="none",
-                    # name=roleName,  # NOTE this must be a string/number
-                    hoverlabel=dict(namelength=0),
-                )
-            )
+            fig = mesh_layers(fig, dfLineInfo, colourDict, role)
 
             # Don't include the legend of the line plots
             fig.data[-1].showlegend = False
+
+    return fig
+
+
+def mesh_layers(fig, df, colourDict, label):
+
+    """
+    Plot 3d meshes to highlight the position of the identities with respect to the median position of all identities within a given element
+    """
+
+    pos = df[["Dim0", "Dim1", "Dim2"]]
+    midPos = np.median(pos, 0)
+    diff = np.sum((pos - midPos) ** 2, 1)
+    diffDesc = diff.describe()
+    q3 = diffDesc.loc["75%"]
+    iqr = q3 - diffDesc.loc["25%"]
+    rng = iqr * 1.5 + q3
+
+    # Highlight the outlier points (only if there are any)
+    if not np.all((diff < rng) == True):
+
+        fig.add_mesh3d(
+            x=df["Dim0"],
+            y=df["Dim1"],
+            z=df["Dim2"],
+            color=colourDict[label],
+            opacity=0.05,  # opacity is from lightest to darkest on time
+            alphahull=0.01,
+            hoverlabel=dict(namelength=0),
+            hovertemplate=f"<b>{label} Outliers</b><br>",
+        )
+
+    # highlight the points which are within the normal range and plot as slighly darker/core identities
+    fig.add_mesh3d(
+        x=df[diff < rng]["Dim0"],
+        y=df[diff < rng]["Dim1"],
+        z=df[diff < rng]["Dim2"],
+        color=colourDict[label],
+        opacity=0.2,  # opacity is from lightest to darkest on time
+        alphahull=0.01,
+        hoverlabel=dict(namelength=0),
+        hovertemplate=f"<b>{label} Core</b><br>",
+    )
 
     return fig
