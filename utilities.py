@@ -4,10 +4,22 @@ import pandas as pd
 from openpyxl import Workbook
 from plotly.colors import qualitative as colours
 from plotly.colors import hex_to_rgb
+from datetime import datetime
 
 # from numba import jit
 
 # @jit
+
+
+def create_datetime(t):
+
+    """
+    Convert a unix timestampe into a human readable time stamp
+    """
+
+    return datetime.fromtimestamp(int(t)).strftime("%m/%d/%Y, %H:%M:%S")
+
+
 def mdsCalculation(
     permissionData: pd.DataFrame,
     privilegedData=pd.DataFrame(None),
@@ -338,7 +350,7 @@ def create_colour_dict(
         )
 
     for n_c, c in enumerate(
-        sorted(np.unique(np.concatenate([df.dropna().unique() for df in dfs])))
+        sorted(np.unique(np.concatenate([df.unique().astype(str) for df in dfs])))
     ):
 
         colour_dict[str(c)] = colFunc(n_c)
