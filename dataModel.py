@@ -247,7 +247,7 @@ class DataModel(object):
         if forceRecalculate or len(csvFiles) == 0:
 
             print("     Recalculation beginning")
-            self.calculateMDS()
+            self.calculateMDS("isomap")
             dttime = int(datetime.utcnow().timestamp())
             self.mdsResults.to_csv(f"{self.dir['results']}{csvName}_{dttime}.csv")
 
@@ -256,14 +256,19 @@ class DataModel(object):
             print(f"     Using {csvPath} to load pre-calculated results")
             self.mdsResults = pd.read_csv(csvPath)
 
-    def calculateMDS(self):
+    def calculateMDS(self, method="mds"):
 
         print("     Calculating similarity matrix")
         # the rawPermissionData MUST be a pandas dataframe with the columns being the permissions
         # and the rows being the identities
 
+        # prime the mds calculation?
+        # mdsCalculation(self.permissionData[:10], verbose=0)
+
         # apply the impact of privileged permissions
-        pos = mdsCalculation(self.permissionData, self.privilegedData, self.roleData)
+        pos = mdsCalculation(
+            self.permissionData, self.privilegedData, self.roleData, method = method
+        )
         print(f"     Fitting complete")
 
         # get n-dimension labels
