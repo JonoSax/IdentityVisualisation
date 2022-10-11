@@ -11,6 +11,12 @@ import pandas as pd
 from datetime import datetime
 from utilities import *
 
+"""
+TODO
+    - Using d3blocks to create a chord diagram, network diagram etc: https://towardsdatascience.com/d3blocks-the-python-library-to-create-interactive-and-standalone-d3js-charts-3dda98ce97d4
+    
+"""
+
 
 def track_elements(
     dfIDIncl: pd.DataFrame,
@@ -562,20 +568,20 @@ def mesh_layers(fig, df, colourDict, label):
             y=df["Dim1"],
             z=df["Dim2"],
             color=colourDict[label],
-            opacity=0.05,  # opacity is from lightest to darkest on time
-            alphahull=0.01,
+            opacity=0.02,  # opacity is from lightest to darkest on time
+            alphahull=0,
             hoverlabel=dict(namelength=0),
             hovertemplate=f"<b>{label} Outliers</b><br>",
         )
 
     # highlight the points which are within the normal range and plot as slighly darker/core identities
     fig.add_mesh3d(
-        x=df[diff < rng]["Dim0"],
-        y=df[diff < rng]["Dim1"],
-        z=df[diff < rng]["Dim2"],
+        x=df[diff <= rng]["Dim0"],
+        y=df[diff <= rng]["Dim1"],
+        z=df[diff <= rng]["Dim2"],
         color=colourDict[label],
-        opacity=0.2,  # opacity is from lightest to darkest on time
-        alphahull=0.01,
+        opacity=0.15,  # opacity is from lightest to darkest on time
+        alphahull=0,
         hoverlabel=dict(namelength=0),
         hovertemplate=f"<b>{label} Core</b><br>",
     )
