@@ -1,10 +1,12 @@
 import numpy as np
 from sklearn import manifold
+from scipy.sparse import lil_matrix
 import pandas as pd
 from openpyxl import Workbook
 from plotly.colors import qualitative as colours
 from plotly.colors import hex_to_rgb
 from datetime import datetime
+from time import time
 
 # from numba import jit
 
@@ -25,6 +27,8 @@ def mdsCalculation(
     privilegedData=pd.DataFrame(None),
     roleData=pd.DataFrame(None),
     dims=3,
+    verbose=2,
+    method="mds",
 ):
 
     """
@@ -104,23 +108,7 @@ def mdsCalculation(
     dissimilarity = 1 - similarityPermissionData * similarityPermissionData.transpose()
 
     # perform dimensionality reduction
-    print("     Starting mds fit")
-
-    mds = manifold.MDS(
-        n_components=dims,
-        max_iter=500,
-        eps=1e-3,
-        random_state=np.random.RandomState(seed=3),
-        dissimilarity="precomputed",
-        n_jobs=4,
-        verbose=2,
-        metric=True,
-    )
-
-    isomap = manifold.Isomap(
-        n_neighbors=10,
-        n_components=3,
-    )
+    print(f"     Starting mds fit with {method}")
 
     """
     Enforce the dissimilarities to float32 as a compromise of accuracy and speed
@@ -129,11 +117,32 @@ def mdsCalculation(
     d32  = 5.387955260276795 sec
     d16 = 6.188236093521118 sec
     """
-    # results = mds.fit(dissimilarity.astype(np.float32), )
-    # pos = results.embedding_
-    # NOTE memory issue on windows for large array size: https://stackoverflow.com/questions/57507832/unable-to-allocate-array-with-shape-and-data-type
-    pos = mds.fit_transform(dissimilarity)
-    # pos = isomap.fit(dissimilarity).embedding_
+
+    if method == "mds":
+
+        mds = manifold.MDS(
+            n_components=dims,
+            max_iter=500,
+            eps=1e-3,
+            random_state=np.random.RandomState(seed=3),
+            dissimilarity="precomputed",
+            n_jobs=4,
+            verbose=verbose,
+            metric=True,
+        )
+
+        # NOTE memory issue on windows for large array size: https://stackoverflow.com/questions/57507832/unable-to-allocate-array-with-shape-and-data-type
+        pos = mds.fit_transform(dissimilarity)
+
+    elif method == "isomap":
+
+        isomap = manifold.Isomap(
+            n_neighbors=5,
+            n_components=3,
+        )
+        start = time()
+        pos = isomap.fit_transform(lil_matrix(dissimilarity))
+        print(f"Isomap complete in {np.round(time()-start,0)} sec")
 
     return pos
 
