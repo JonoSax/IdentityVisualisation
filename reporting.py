@@ -121,7 +121,7 @@ class Metrics:
 
         return df
 
-    def calculateDistances(self, df=None, attr=None, specificTime=None):
+    def calculateDistances(self, df=None, attr=None, specificTime=None, sumType='net'):
 
         """
         Calculate the distances of all object in each attribute unless specified
@@ -160,6 +160,9 @@ class Metrics:
         newCols = [f"_Distance{a}" for a in attr]
         for a, newCol in zip(attr, newCols):
 
+            if sumType == "axis":
+                newCol = [f"{d}_{newCol}" for d in ["Dim0", "Dim1", "Dim2"]]
+
             attributeValues = df[a].unique()
 
             # Calculate the distance of all identities in each element from the median point at the
@@ -177,7 +180,16 @@ class Metrics:
                     ],
                     0,
                 )
-                dists = np.sum((dfAttr[["Dim0", "Dim1", "Dim2"]] - centrePoint) ** 2, 1)
+
+                # if the error is a net sum distance (ie straight line from the median position of all 
+                # permission)
+                if sumType == "net":
+                    dists = np.sum((dfAttr[["Dim0", "Dim1", "Dim2"]] - centrePoint) ** 2, 1)
+
+                # if the error is calculated per axis
+                elif sumType == "axis":
+                    dists = np.abs(dfAttr[["Dim0", "Dim1", "Dim2"]] - centrePoint)
+                
                 dfAttr[newCol] = dists
 
                 if dfAll is None:
@@ -186,17 +198,17 @@ class Metrics:
                     dfCopy = pd.concat([dfCopy, dfAttr])
 
             # add the new column in with the info
+            if type(newCol) is not list:
+                newCol = [newCol] 
             dfAll = pd.merge(
                 dfAll,
-                dfCopy[[self.key, "_DateTime", newCol]],
+                dfCopy[[self.key, "_DateTime", *newCol]],
                 on=[self.key, "_DateTime"],
                 validate="many_to_one",
             )
 
-        dfAll = (
-            dfAll[[self.key, "_DateTime"] + newCols]
-            .sort_values([self.key, "_DateTime"])
-            .set_index([self.key, "_DateTime"])
+        dfAll = dfAll.sort_values([self.key, "_DateTime"]).set_index(
+            [self.key, "_DateTime"]
         )
 
         if ret:
@@ -214,7 +226,7 @@ class Metrics:
         outlier
         """
 
-        attrDist = [d for d in self.dfDistances.columns if "_Distance" in d]
+        attrDist = [d for d in self.dfDistances.columns if "__Distance" in d]
 
         allAttrDesc = self.dfDistances[attrDist].describe()
         outlierdf = None
@@ -230,7 +242,7 @@ class Metrics:
             # 1.5 x iqr beyond the q3
             outliers = self.dfDistances[self.dfDistances[attr] > (iqr * 1.5 + q3)]
 
-            outliers["type"] = attr.replace("_Distance", "")
+            outliers["type"] = attr.split("__Distance")[-1] 
             if outlierdf is None:
                 outlierdf = outliers
             else:
@@ -391,7 +403,7 @@ def report_1(
     # ----------- Get base information from the data ----------
 
     dist = Metrics(plotIDdf, permissions, uiddf, specificTime=sliderDate)
-    dist.calculateDistances(attr=attribute, specificTime=dist.specificTime)
+    dist.calculateDistances(attr=attribute, specificTime=dist.specificTime, sumType="axis")
     dist.findOutliers()
     dist.outlierEntitlements()
 
@@ -477,7 +489,7 @@ def report_1(
                 ]
 
             # Analyse the dispersion of permissions per element (using a minimum of 5 identities)
-            if len(ids) > 5:
+            if len(ids) > 5 and False:
 
                 # eleSpread = dist.dfDistances.loc[(ids, latestTime), :][f"_Distance{attr}"]
                 eleSpread = dist.dfDistances[
@@ -708,15 +720,15 @@ def report_1(
         dist.specificTime + 1
     )  # iterate the latest time to create the "future" permission
 
-    #### RERUN THE OUTLIER CALCULATIONS AND THE DISTANCE FROM THE MEDIAN POINT
+    #### RERUN THE OUTLIER CALCULATIONS AND THE CHANGE IN DISTANCE FROM THE MEDIAN POINT #####
     dfNew = dist.calculateDistances(entitleExtract, dist.attribute)
-    oldDists = [dfNew.loc[i].loc[dist.specificTime] for i in idsImpacted]
-    newDists = [dfNew.loc[i].loc[dist.specificTime + 1] for i in idsImpacted]
-    distInfo = pd.DataFrame(
-        [1 - n / o for n, o in zip(newDists, oldDists)], index=idsImpacted
-    )
+    dfIDsofInterest = dfNew.loc[idsImpacted]
+    distAttr = [d for d in dfIDsofInterest.columns if "_Distance" in d]
+    oldDists = dfIDsofInterest.loc[(slice(None), dist.specificTime), :][distAttr].droplevel(1)
+    newDists = dfIDsofInterest.loc[(slice(None), dist.specificTime + 1), :][distAttr].droplevel(1)
+    distInfo = pd.DataFrame(1 - newDists/oldDists)
     distDesc = pd.Series(
-        np.hstack(1 - np.array(newDists) / np.array(oldDists))
+        np.hstack(distInfo.to_numpy())
     ).describe()
 
     prioritySummary = [
