@@ -97,6 +97,7 @@ def createInteractivePlot(dataModel: object):
         marks = {n: {"label": d} for n, d in enumerate(dtformat)}
         # marks = {n: {'label': d} for n, d in zip(dttimes, dtformat)}
 
+    # create the drop down information
     attrArray = np.array(
         [[r, len(dfID[r].unique())] for r in hover_data if r.find("DateTime") == -1]
     )
@@ -107,14 +108,10 @@ def createInteractivePlot(dataModel: object):
     ]
     dropDownStart = dropDownOpt[attrArray[:, 1].astype(int).argsort()[0]]
 
-    # for values which are numeric, convert their values into a ranked position so that
-    # on the heat maps it can show up easily
-    # NOTE this is not actually very useful as it assumes that data that is chronological is related
-    """
-    dfSelect = dfID[hover_data]
-    dfRanked = dfSelect.rank(numeric_only = True, method = 'dense').astype(int)
-    dfID[list(dfRanked.columns)] = dfRanked
-    """
+    xRng = dfID["Dim0"].max() - dfID["Dim0"].min()
+    yRng = dfID["Dim1"].max() - dfID["Dim1"].min()
+    zRng = dfID["Dim2"].max() - dfID["Dim2"].min()
+    sliderValue = 2 * np.sqrt(xRng**2 + yRng**2 + zRng**2)
 
     # make data point selection
     # https://dash.plotly.com/interactive-graphing
@@ -123,46 +120,6 @@ def createInteractivePlot(dataModel: object):
 
     app.layout = html.Div(
         [
-            # drop down list of attribute options detected from data
-            html.Div(
-                [
-                    html.Div(
-                        [
-                            dcc.Dropdown(
-                                dropDownOpt,
-                                dropDownStart,  # select an attribute with the fewest variables initially
-                                id="selectedDropDown",
-                                multi=False,  # for selecting multiple values set to true
-                                clearable=False,
-                            )
-                        ],
-                        style={"width": "49%"},
-                    ),
-                    html.Div(
-                        [
-                            dcc.Dropdown(
-                                options=[""],
-                                value=[],  # select an attribute with the fewest variables initially
-                                id="selectableDropDownExclude",
-                                placeholder="Select elements to exclude",
-                                multi=True,  # for selecting multiple values set to true
-                                clearable=True,
-                            ),
-                            dcc.Dropdown(
-                                options=[""],
-                                value=[],  # select an attribute with the fewest variables initially
-                                id="selectableDropDownInclude",
-                                placeholder="Select elements to include",
-                                multi=True,  # for selecting multiple values set to true
-                                clearable=True,
-                                disabled=False,
-                            ),
-                        ],
-                        style={"width": "49%"},
-                    ),
-                ],
-                style={"padding": "0px 5px"},
-            ),
             # main figure
             html.Div(
                 [
@@ -170,7 +127,7 @@ def createInteractivePlot(dataModel: object):
                     html.Div(
                         [dcc.Graph(id="plotly_figure")],
                         style={
-                            "width": "800",
+                            "width": "60%",
                             "height": "600",
                             "display": "inline-block",
                         },
@@ -183,7 +140,7 @@ def createInteractivePlot(dataModel: object):
                                 [
                                     dcc.Slider(
                                         0,
-                                        2,
+                                        sliderValue,
                                         value=0,
                                         id="slider-rounding",
                                         disabled=False,
@@ -194,11 +151,55 @@ def createInteractivePlot(dataModel: object):
                             ),
                             # html.Div(id='slider-output'),
                         ],
-                        style={"display": "inline-block"},
+                        style={
+                            "display": "inline-block",
+                            "marginRight": "10px",
+                            "marginLeft": "10px",
+                        },
                     ),
-                    # report buttons
+                    # filtering and reporting controls/buttons
                     html.Div(
                         [
+                            # attribute dropdown
+                            dcc.Dropdown(
+                                dropDownOpt,
+                                dropDownStart,  # select an attribute with the fewest variables initially
+                                id="selectedDropDown",
+                                multi=False,  # for selecting multiple values set to true
+                                clearable=False,
+                            ),
+                            # elements to include
+                            dcc.Dropdown(
+                                options=[""],
+                                value=[],  # select an attribute with the fewest variables initially
+                                id="selectableDropDownExclude",
+                                placeholder="Select elements to exclude",
+                                multi=True,  # for selecting multiple values set to true
+                                clearable=True,
+                                # style={"max-height": "280px", "overflow-y": "auto"},
+                            ),
+                            # elements to exclude
+                            dcc.Dropdown(
+                                options=[""],
+                                value=[],  # select an attribute with the fewest variables initially
+                                id="selectableDropDownInclude",
+                                placeholder="Select elements to include",
+                                multi=True,  # for selecting multiple values set to true
+                                clearable=True,
+                                disabled=False,
+                                # style={"max-height": "280px", "overflow-y": "auto"},
+                            ),
+                            # find identities
+                            dcc.Dropdown(
+                                options=list(dfID[dataModel.joinKeys["permission"]].unique()),
+                                value=[],  # select an attribute with the fewest variables initially
+                                id="selectableIdentities",
+                                placeholder="Select identities to highlight",
+                                multi=True,  # for selecting multiple values set to true
+                                clearable=True,
+                                disabled=False,
+                                # style={"max-height": "280px", "overflow-y": "auto"},
+                            ),
                             # report1 button
                             html.Div(
                                 [
@@ -294,7 +295,12 @@ def createInteractivePlot(dataModel: object):
                                 style={"margin-left": "15px", "margin-top": "15px"},
                             ),
                         ],
-                        style={"display": "inline-block"},
+                        style={
+                            "display": "inline-block",
+                            "width": "30%",
+                            # "draggable": "true",
+                            "vertical-align": "bottom",
+                        },
                     ),
                 ]
             ),
@@ -476,7 +482,6 @@ def createInteractivePlot(dataModel: object):
 
 
 # plotly figure updates
-@cache.memoize()
 @app.callback(
     Output("plotly_figure", "figure"),
     Output("identitiesPlotted", "data"),
@@ -487,6 +492,7 @@ def createInteractivePlot(dataModel: object):
     Input("selectedDropDown", "value"),
     Input("selectableDropDownExclude", "value"),
     Input("selectableDropDownInclude", "value"),
+    Input("selectableIdentities", "value"),
     State("uidAttr", "data"),
     State("roleAttr", "data"),
     State("hover_data", "data"),
@@ -505,6 +511,7 @@ def update_graph(
     attribute,
     elementsExclude,
     elementsInclude,
+    identitiesFind,
     uidAttr,
     roleAttr,
     hover_data,
@@ -659,15 +666,34 @@ def update_graph(
             colour_dict,
         )
 
+    if len(identitiesFind) > 0:
+        
+        identitiesFocus = dfIDIncl[dfIDIncl[uidAttr].isin(identitiesFind)]
+        
+        fig, plotTitle, dfPlotIncl, dfPlotExcl = plot_identities(
+            identitiesFocus,
+            [],
+            uidAttr,
+            attribute,
+            hover_data,
+            sliderDateValue,
+            colour_dict[attribute],
+            emphasise=True,
+            fig=fig
+        )
+
     # ---------- Scale and format the plot ----------
 
-    r = 0.2  # The extra bit to add to the graphs for scaling
-    xMin = dfID["Dim0"].min() - r
-    xMax = dfID["Dim0"].max() + r
-    yMin = dfID["Dim1"].min() - r
-    yMax = dfID["Dim1"].max() + r
-    zMin = dfID["Dim2"].min() - r
-    zMax = dfID["Dim2"].max() + r
+    r = 0.1  # The extra bit to add to the graphs for scaling
+    xDif = dfID["Dim0"].max() - dfID["Dim0"].min()
+    yDif = dfID["Dim1"].max() - dfID["Dim1"].min()
+    zDif = dfID["Dim2"].max() - dfID["Dim2"].min()
+    xMin = dfID["Dim0"].min() - xDif * r
+    xMax = dfID["Dim0"].max() + xDif * r
+    yMin = dfID["Dim1"].min() - yDif * r
+    yMax = dfID["Dim1"].max() + yDif * r
+    zMin = dfID["Dim2"].min() - zDif * r
+    zMax = dfID["Dim2"].max() + zDif * r
 
     fig.update_layout(
         title="<br>".join(wrap(plotTitle, width=70)),  # set the title
@@ -738,7 +764,7 @@ Create dashboard specific functions for each of the plotting functions to allow 
 """
 
 
-@cache.memoize()
+# @cache.memoize()
 def track_elements_dashboard(
     dfIDIncl, dfIDExcl, uidAttr, attribute, hover_data, mesh_time_slider, colour_dict
 ):
@@ -754,7 +780,7 @@ def track_elements_dashboard(
     )
 
 
-@cache.memoize()
+# @cache.memoize()
 def cluster_identities_dashboard(
     dfIDIncl,
     dfIDExcl,
@@ -780,7 +806,7 @@ def cluster_identities_dashboard(
     )
 
 
-@cache.memoize()
+# @cache.memoize()
 def plot_identities_dashboard(
     dfIDIncl, dfIDExcl, uidAttr, attribute, hover_data, sliderDateValue, colour_dict
 ):
@@ -796,7 +822,7 @@ def plot_identities_dashboard(
     )
 
 
-@cache.memoize()
+# @cache.memoize()
 def plot_roles_dashboard(
     fig,
     dfPlotIncl,
@@ -987,6 +1013,7 @@ def update_exit_button(click, pid):
 
 
 # action to perform when a row is added
+# NOTE change the graphing visualisation on clicking: https://plotly.com/python/click-events/
 @app.callback(
     Output("selected_points_table", "data"),
     State("selected_points_table", "data"),
@@ -1230,7 +1257,6 @@ def update_buttons(sliderRounding, sliderClustering, trackingToggle):
         report4,
         report5,
     )
-
 
 @app.callback(
     Output("selectableDropDownExclude", "options"),
