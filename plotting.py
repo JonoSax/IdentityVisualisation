@@ -52,8 +52,13 @@ def track_elements(
 
     print(f"     Tracking historical data with 3D plotting for {attribute}")
 
+    if attribute == uidAttr:
+        print("Attribute is the same as the unique identifier, cannot plot")
+        return go.Figure()
+
     allTimes = dfIDIncl["_DateTime"].unique()
     allTimesFormat = dfIDIncl["_PermissionDateTime"].unique()
+    elements = dfIDIncl[attribute].unique()
 
     allSizes = np.linspace(4, 12, len(allTimes)).astype(int)
 
@@ -70,45 +75,26 @@ def track_elements(
                 a
             ] = f"rgba{tuple(np.append(hex_to_rgb(colourDict[c]), transparency[n_a]))}"
 
-    # create the size dictionary
-    timeDict = {}
-    for t, s in zip(allTimes, allSizes):
-        timeDict[t] = s
+    # Identify identities with access movement which is outsides the norm per element
+    dfIDInclSort = dfIDIncl.sort_values([uidAttr, "_DateTime"], ascending=[True, False])
+    dfIDInclSort["diff"] = np.sum(
+        dfIDInclSort.groupby([uidAttr])[["Dim0", "Dim1", "Dim2"]].diff() ** 2, 1
+    ).sort_values()
+    idMovement = np.round(dfIDInclSort.groupby(uidAttr)["diff"].sum(), 2)
+    idMoveDesc = idMovement.describe()
+    q3 = idMoveDesc.loc["75%"]
+    iqr = q3 - idMoveDesc.loc["25%"]
+    rng = iqr * 1.5 + q3
+    idsOutlier = idMovement[idMovement > rng].index
 
-    # Combine the individual positions and take the median positions of all identities for the particular attribute and dates if the attribute selected is not the unique identifier
-    if attribute != uidAttr:
-        allAttrs = dfIDIncl[attribute].unique()
-        data = []
-        for attr in allAttrs:
-            dfAttrId = dfIDIncl[dfIDIncl[attribute] == attr]
-            for dt in allTimes:
-
-                # spread = get_identity_spread(dfAttrId[dfAttrId["_DateTime"] == dt])
-
-                data.append(
-                    [
-                        np.median(dfAttrId[dfAttrId["_DateTime"] == dt]["Dim0"]),
-                        np.median(dfAttrId[dfAttrId["_DateTime"] == dt]["Dim1"]),
-                        np.median(dfAttrId[dfAttrId["_DateTime"] == dt]["Dim2"]),
-                        dt,
-                        len(dfAttrId[dfAttrId["_DateTime"] == dt]),
-                        attr,
-                        create_datetime(int(dt)),
-                    ]
-                )
-
-        custom_hover_data = ["Count", attribute, "_PermissionDateTime"]
-        dfTrack = pd.DataFrame(
-            data, columns=["Dim0", "Dim1", "Dim2", "_DateTime"] + custom_hover_data
-        )
-        dfTrack = dfTrack.combine_first(pd.DataFrame(columns=dfIDIncl.columns))
-        elements = dfTrack[attribute].unique()
-
-    # if the selected attribute is the unique identifier, provide all data (there will
-    # no combining of data)
-    else:
-        dfTrack = dfIDIncl
-        elements = dfIDIncl[attribute].unique()
+    # Calculate the aggregate statistics for the attribute plotting
+    dfTrack = (
+        dfIDInclSort.groupby([attribute, "_DateTime", "_PermissionDateTime"])
+        .agg({"Dim0": "median", "Dim1": "median", "Dim2": "median", uidAttr: "count"})
+        .reset_index()
+        .rename(columns={uidAttr: "Count"})
+        .sort_values("_DateTime", ascending=False)
+    )
 
     # plot the volumetric area encomapssing all identities for the given selected time if mesh_time_slider is -1 then this means there is to be NO plotting of the mesh
     if mesh_time_slider == -1:
@@ -116,19 +102,24 @@ def track_elements(
     else:
         timeSelect = sorted(dfIDIncl["_DateTime"].unique())[mesh_time_slider]
 
-    dfTrack = dfTrack.sort_values("_DateTime")
+    # create the size dictionary
+    timeDict = {}
+    for t, s in zip(allTimes, allSizes):
+        timeDict[t] = s
+
+    custom_hover_data = ["Count", attribute, "_PermissionDateTime"]
     for ele in sorted(elements):
-        # ----------------- Track elements -----------------
+
+        # ----------------- Track median position of identities in elements -----------------
         # get all the unique entries for this unique identity
         eletrdf = dfTrack[dfTrack[attribute] == ele]
 
+        # set the colours so that the newest data pont is 100% opacity and the oldest data point is 40% opacity
         selected_colours = [
             customColourDict[attr][unix]
             for attr, unix in zip(eletrdf[attribute], eletrdf["_DateTime"])
         ]
-        selected_sizes = [timeDict[t] for t in eletrdf["_DateTime"]]
-        # set the colours so that the newest data pont is 100% opacity and the oldest data point is 40% opacity
-        name = [u for u in eletrdf[attribute] if u != "None"][0]
+        selected_sizes = 20  # [timeDict[t] * 2 for t in eletrdf["_DateTime"]]
 
         # doco: https://plotly.github.io/plotly.py-docs/generated/plotly.graph_objects.Scatter3d.html
         fig.add_trace(
@@ -145,21 +136,23 @@ def track_elements(
                         for n, h in enumerate(custom_hover_data)
                     ]
                 ),
-                marker=dict(color=selected_colours, size=selected_sizes),
+                marker=dict(
+                    color=selected_colours, size=selected_sizes, symbol="square"
+                ),
                 line=dict(color=selected_colours),
-                name=name,  # NOTE this must be a string/number
-                # legendgroup = name,     # NOTE this must be a string/number
+                name=ele,  # NOTE this must be a string/number
+                legendgroup=ele,  # NOTE this must be a string/number
                 # connectgaps=True        # NOTE for some reason this isn't acutally connecting gaps.... maybe wrong data type for empty? '
                 hoverlabel=dict(namelength=0),
             )
         )
 
-        fig.data[-1].marker.size = (10,)
-        fig.data[-1].marker.color = colourDict[ele]
+        # fig.data[-1].marker.size = (10,)
+        # fig.data[-1].marker.color = colourDict[ele]
 
-        # --------------- Volumetric area ----------------
-        uidVolDf = dfIDIncl[
-            (dfIDIncl[attribute] == ele) & (dfIDIncl["_DateTime"] == timeSelect)
+        # --------------- Volumetric area of the element ----------------
+        uidVolDf = dfIDInclSort[
+            (dfIDInclSort[attribute] == ele) & (dfIDInclSort["_DateTime"] == timeSelect)
         ]
 
         if len(uidVolDf) == 0:
@@ -167,10 +160,55 @@ def track_elements(
 
         fig = mesh_layers(fig, uidVolDf, colourDict, ele)
 
-    # for missing datapoints, connect traces
-    # fig.update_traces(connectgaps=True)
+    # plot the tracking for outlier identities
+    for id in idsOutlier:
 
-    plotTitle = f"Tracking {len(elements)} identities grouped by {attribute} from {allTimesFormat[0]} to {allTimesFormat[-1]}"
+        eletrdf = dfIDInclSort[dfIDInclSort[uidAttr] == id]
+
+        # set the colours so that the newest data pont is 100% opacity and the oldest data point is 40% opacity
+        selected_colours = [
+            customColourDict[attr][unix]
+            for attr, unix in zip(eletrdf[attribute], eletrdf["_DateTime"])
+        ]
+        selected_sizes = 10  # [timeDict[t] for t in eletrdf["_DateTime"]]
+
+        # doco: https://plotly.github.io/plotly.py-docs/generated/plotly.graph_objects.Scatter3d.html
+        fig.add_trace(
+            go.Scatter3d(
+                x=eletrdf["Dim0"],
+                y=eletrdf["Dim1"],
+                z=eletrdf["Dim2"],
+                customdata=eletrdf[hover_data],
+                hovertemplate=f"<b>{uidAttr}: %{'{customdata['}{hover_data.index(uidAttr)}{']}'}</b><br><br>"
+                + "<br>".join(
+                    [
+                        f"{h}: %{'{customdata['+str(n)+']}'}"
+                        for n, h in enumerate(hover_data)
+                    ]
+                ),
+                marker=dict(
+                    color=selected_colours,
+                    size=10,
+                    line=dict(width=1, color="white"),
+                ),  # include has an opacity of 1
+                line=dict(color=selected_colours),
+                name=id,  # NOTE this must be a string/number
+                legendgroup=[
+                    eletrdf[attribute].unique()[0]
+                    if len(eletrdf[attribute].unique()) == 1
+                    else "mixed"
+                ][
+                    0
+                ],  # NOTE this must be a string/number
+                # connectgaps=True        # NOTE for some reason this isn't acutally connecting gaps.... maybe wrong data type for empty? '
+                hoverlabel=dict(namelength=0),
+            )
+        )
+
+        # fig.data[-1].marker.color = colourDict[ele]
+        # fig.data[-1].marker.color = colourDict[ele]
+
+    plotTitle = f"Tracking {len(elements)} identities grouped by {attribute} from {allTimesFormat[0]} to {allTimesFormat[-1]}. {len(idsOutlier)} displayed as well."
 
     # remove duplicate legend entries
     # NOTE this may be useful to update the plots rather than re-generating them?
@@ -388,6 +426,8 @@ def plot_identities(
     hover_data: list,
     sliderDateValue: int,
     colourDict: dict,
+    emphasise=False,
+    fig=None,
 ):
 
     """
@@ -411,6 +451,12 @@ def plot_identities(
 
     sliderDateValue : int
         Value of the slider data. Limits the process to the selected time period
+
+    emphasise : boolean
+        If True, improve the visuals to highlight the object, else leave as default.
+
+    fig : go.Figure()
+        Plotly figure object. Optional.
     """
 
     print(f"     Plotting data with 3D plotting for {attribute}")
@@ -427,12 +473,13 @@ def plot_identities(
         ]
 
     else:
-        dfTimeExcl = pd.DataFrame(None, columns=dfIDExcl.columns)
+        dfTimeExcl = pd.DataFrame(None, columns=dfIDIncl.columns)
 
     allTimesFormat = dfIDIncl["_PermissionDateTime"].unique()
 
     # Remove the uid from the hoverdata so that it has to be explicitly included
-    fig = go.Figure()
+    if fig is None:
+        fig = go.Figure()
 
     # the clusters to include
     for ele in sorted(dfTimeIncl[attribute].unique()):
@@ -448,7 +495,10 @@ def plot_identities(
                 color=colourDict[ele],
                 opacity=1,
                 size=10,
-                line=dict(width=1, color="white"),
+                line=dict(width=1, color="black")
+                if emphasise
+                else dict(width=1, color="white"),
+                symbol="square" if emphasise else "circle",
             ),  # include has an opacity of 1
             hovertemplate=f"<b>{attribute}: %{'{customdata['}{hover_data.index(attribute)}{']}'}</b><br>"
             + f"<i>{uidAttr}: %{'{customdata['}{hover_data.index(uidAttr)}{']}'}</i><br><br>"
@@ -459,7 +509,7 @@ def plot_identities(
                 ]
             ),
             legendgroup=ele,
-            name=ele,
+            name="Selected identities" if emphasise else ele,
             hoverlabel=dict(namelength=0),
         )
 
