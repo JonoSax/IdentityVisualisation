@@ -8,3 +8,7 @@ old/
 __pycache__/*
 documentation/
 cache-directory/*
+raw.*/
+hash.py
+MultiDimAttributeAnalysis.exe
+*.mp4
