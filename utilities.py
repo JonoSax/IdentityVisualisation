@@ -175,9 +175,10 @@ def clusterData(df, uidAttr, attribute, sliderRoundValue, dictRules=None):
     """
 
     dfMod = df.copy()
+
     dfMod[["Dim0r", "Dim1r", "Dim2r"]] = dfMod[["Dim0", "Dim1", "Dim2"]].apply(
         lambda x: np.round(
-            sliderRoundValue**2 * np.round(x / sliderRoundValue**2), 2
+            sliderRoundValue * np.round(x / sliderRoundValue), 2
         )
     )
     dfMod["_Count"] = dfMod.groupby(["Dim0r", "Dim1r", "Dim2r", attribute])[
