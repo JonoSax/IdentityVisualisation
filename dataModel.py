@@ -191,7 +191,7 @@ class DataModel(object):
 
         self.hashValue = sha256(
             np.r_[
-                hash_pd(self.rawIdentityData, index=True).values,
+                # hash_pd(self.rawIdentityData, index=True).values,
                 hash_pd(self.rawPermissionData, index=True).values,
                 hash_pd(self.rawPrivilegedData, index=True).values,
                 hash_pd(self.rawRoleData, index=True).values,
@@ -247,14 +247,16 @@ class DataModel(object):
         if forceRecalculate or len(csvFiles) == 0:
 
             print("     Recalculation beginning")
-            self.calculateMDS("isomap")
+            mdsPositions = self.calculateMDS("isomap")
             dttime = int(datetime.utcnow().timestamp())
-            self.mdsResults.to_csv(f"{self.dir['results']}{csvName}_{dttime}.csv")
+            mdsPositions.to_csv(f"{self.dir['results']}{csvName}_{dttime}.csv")
 
         else:
             csvPath = csvFiles[-1]
             print(f"     Using {csvPath} to load pre-calculated results")
-            self.mdsResults = pd.read_csv(csvPath)
+            mdsPositions = pd.read_csv(csvPath)
+
+        self.mdsResults = self.mergeIdentityData(mdsPositions)
 
     def calculateMDS(self, method="mds"):
 
@@ -267,7 +269,7 @@ class DataModel(object):
 
         # apply the impact of privileged permissions
         pos = mdsCalculation(
-            self.permissionData, self.privilegedData, self.roleData, method = method
+            self.permissionData, self.privilegedData, self.roleData, method=method
         )
         print(f"     Fitting complete")
 
@@ -285,7 +287,11 @@ class DataModel(object):
         ].astype(float)
         entitleExtract["_DateTime"] = entitleExtract["_DateTime"].astype(int)
 
-        # merge all identity information if available, remove unnecessary columns, standardise headings to have no spaces
+        return entitleExtract
+
+    def mergeIdentityData(self, mdsPositions):
+
+        # merge all identity information if available, remove unnecessary columns
         if self.identityData is not None:
             selectColums = [
                 r
@@ -303,9 +309,9 @@ class DataModel(object):
             """
             # Join the data based on the available information
             if "_DateTime" in identityExtract.columns:
-                entitleExtract["_DateTime"] = entitleExtract["_DateTime"].astype(int)
+                mdsPositions["_DateTime"] = mdsPositions["_DateTime"].astype(int)
                 identityExtract["_DateTime"] = identityExtract["_DateTime"].astype(int)
-                entitleExtract = entitleExtract.sort_values("_DateTime")
+                mdsPositions = mdsPositions.sort_values("_DateTime")
                 identityExtract = identityExtract.sort_values("_DateTime")
                 identityExtract["_IdentityDateTime"] = identityExtract[
                     "_DateTime"
@@ -313,22 +319,21 @@ class DataModel(object):
                 # match for identity extracts with the closest in time to the entitlement extract. If there is no identity matched then the individual who is modelled will still be included (this is a left join), however they will have not associated identity data.
                 # NOTE a tolerance of a week, tolerance = 604800
                 posdf = pd.merge_asof(
-                    entitleExtract,
+                    mdsPositions,
                     identityExtract,
                     on="_DateTime",
                     left_by=self.joinKeys["permission"],
                     right_by=self.joinKeys["identity"],
                     direction="nearest",
-                )
+                ).fillna("No ID data")
                 # posdf = posdf.drop(self.joinKeys["permission"])     # Keep just the uid from the identity dataframe
             else:
 
                 posdf = pd.merge(
-                    entitleExtract, identityExtract, left_on=self.joinKeys["permission"]
-                )
+                    mdsPositions, identityExtract, left_on=self.joinKeys["permission"]
+                ).fillna("No ID data")
 
         else:
-            posdf = entitleExtract
+            posdf = mdsPositions
 
-        # update attribute
-        self.mdsResults = posdf
+        return posdf
