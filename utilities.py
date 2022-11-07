@@ -174,12 +174,11 @@ def clusterData(df, uidAttr, attribute, sliderRoundValue, dictRules=None):
         Dictionary of rules corresponding to the columns in the df to process the final aggregated dataframe
     """
 
+    # perform the spatial clustering and tranform the positional information
     dfMod = df.copy()
-
+    dfMod["_IdentitiesCollected"] = dfMod[uidAttr]
     dfMod[["Dim0r", "Dim1r", "Dim2r"]] = dfMod[["Dim0", "Dim1", "Dim2"]].apply(
-        lambda x: np.round(
-            sliderRoundValue * np.round(x / sliderRoundValue), 2
-        )
+        lambda x: np.round(sliderRoundValue * np.round(x / sliderRoundValue), 2)
     )
     dfMod["_Count"] = dfMod.groupby(["Dim0r", "Dim1r", "Dim2r", attribute])[
         [uidAttr]
@@ -192,7 +191,11 @@ def clusterData(df, uidAttr, attribute, sliderRoundValue, dictRules=None):
         "Dim1": "median",
         "Dim2": "median",
         "_Count": "median",
+        "_IdentitiesCollected": lambda x: ",".join(
+            [str(n) for n in x]
+        ),  # store all unique identifiers as a csv string
     }
+
     if dictRules is not None:
         aggDict.update(dictRules)
 
