@@ -121,7 +121,7 @@ class Metrics:
 
         return df
 
-    def calculateDistances(self, df=None, attr=None, specificTime=None, sumType='net'):
+    def calculateDistances(self, df=None, attr=None, specificTime=None, sumType="net"):
 
         """
         Calculate the distances of all object in each attribute unless specified
@@ -157,7 +157,7 @@ class Metrics:
         if specificTime is not None:
             dfAll = dfAll[dfAll["_DateTime"] == specificTime]
 
-        newCols = [f"_Distance{a}" for a in attr]
+        newCols = [f"__Distance{a}" for a in attr]
         for a, newCol in zip(attr, newCols):
 
             if sumType == "axis":
@@ -165,8 +165,7 @@ class Metrics:
 
             attributeValues = df[a].unique()
 
-            # Calculate the distance of all identities in each element from the median point at the
-            # most recently recorded permission extract
+            # Calculate the distance of all identities in each element from the median point at the most recently recorded permission extract
             dfCopy = None
             for av in attributeValues:
                 dfAttr = df[df[a] == av][
@@ -181,15 +180,17 @@ class Metrics:
                     0,
                 )
 
-                # if the error is a net sum distance (ie straight line from the median position of all 
+                # if the error is a net sum distance (ie straight line from the median position of all
                 # permission)
                 if sumType == "net":
-                    dists = np.sum((dfAttr[["Dim0", "Dim1", "Dim2"]] - centrePoint) ** 2, 1)
+                    dists = np.sum(
+                        (dfAttr[["Dim0", "Dim1", "Dim2"]] - centrePoint) ** 2, 1
+                    )
 
                 # if the error is calculated per axis
                 elif sumType == "axis":
                     dists = np.abs(dfAttr[["Dim0", "Dim1", "Dim2"]] - centrePoint)
-                
+
                 dfAttr[newCol] = dists
 
                 if dfAll is None:
@@ -199,7 +200,7 @@ class Metrics:
 
             # add the new column in with the info
             if type(newCol) is not list:
-                newCol = [newCol] 
+                newCol = [newCol]
             dfAll = pd.merge(
                 dfAll,
                 dfCopy[[self.key, "_DateTime", *newCol]],
@@ -242,7 +243,7 @@ class Metrics:
             # 1.5 x iqr beyond the q3
             outliers = self.dfDistances[self.dfDistances[attr] > (iqr * 1.5 + q3)]
 
-            outliers["type"] = attr.split("__Distance")[-1] 
+            outliers["type"] = attr.split("__Distance")[-1]
             if outlierdf is None:
                 outlierdf = outliers
             else:
@@ -403,7 +404,9 @@ def report_1(
     # ----------- Get base information from the data ----------
 
     dist = Metrics(plotIDdf, permissions, uiddf, specificTime=sliderDate)
-    dist.calculateDistances(attr=attribute, specificTime=dist.specificTime, sumType="axis")
+    dist.calculateDistances(
+        attr=attribute, specificTime=dist.specificTime, sumType="net"
+    )
     dist.findOutliers()
     dist.outlierEntitlements()
 
@@ -700,7 +703,7 @@ def report_1(
     allPerm = pd.concat([latestPermissions, modLatestPermissions])
 
     # re-calculate the mds
-    perMos = mdsCalculation(allPerm, privData)
+    perMos = mdsCalculation(allPerm, privData, method="isomap")
     dimNames = [f"Dim{n}_R" for n in range(3)]
 
     # merge all the positional and identity data together
@@ -724,12 +727,19 @@ def report_1(
     dfNew = dist.calculateDistances(entitleExtract, dist.attribute)
     dfIDsofInterest = dfNew.loc[idsImpacted]
     distAttr = [d for d in dfIDsofInterest.columns if "_Distance" in d]
-    oldDists = dfIDsofInterest.loc[(slice(None), dist.specificTime), :][distAttr].droplevel(1)
-    newDists = dfIDsofInterest.loc[(slice(None), dist.specificTime + 1), :][distAttr].droplevel(1)
-    distInfo = pd.DataFrame(1 - newDists/oldDists)
-    distDesc = pd.Series(
-        np.hstack(distInfo.to_numpy())
-    ).describe()
+    oldDists = dfIDsofInterest.loc[(slice(None), dist.specificTime), :][
+        distAttr
+    ].droplevel(1)
+    newDists = dfIDsofInterest.loc[(slice(None), dist.specificTime + 1), :][
+        distAttr
+    ].droplevel(1)
+    distInfo = pd.DataFrame(1 - newDists / oldDists)
+    distInfo = distInfo.sort_index(
+        key=distInfo.median(1).get, ascending=False
+    )  # sort the distinfo by the median value of all attributes calculated for from largest to smallest
+    distDesc = pd.Series(np.hstack(distInfo.to_numpy())).describe()
+
+    # ----- Summary statement -----
 
     prioritySummary = [
         "The impact of performing the following modification to the identities and permissions is a:",
@@ -745,6 +755,20 @@ def report_1(
         addToReport(wsPriorityActions, [p], rowNo)
 
     rowNo += 1
+
+    # ----- ID specific changes -----
+
+    addToReport(wsPriorityActions, ["Identity", "%Access variation change by attribute"], rowNo)
+    addToReport(
+        wsPriorityActions,
+        [""] + [d.replace("__Distance", "") for d in distInfo.columns],
+        rowNo,
+    )
+    for id, values in distInfo.iterrows():
+        addToReport(wsPriorityActions, [id] + [f"{int(v*100)}%" for v in values.to_list()], rowNo)
+    rowNo += 1
+
+    # ----- Actions to take -----
 
     addToReport(
         wsPriorityActions,
@@ -762,7 +786,7 @@ def report_1(
     for info in priorityInfo:
         addToReport(wsPriorityActions, info, rowNo)
 
-    # -------------- Important Actions --------------
+    ##### -------------- Important Actions --------------
     wsImportantActions = wb.create_sheet("Important Actions")
     wsImportantActions.cell(
         row=1, column=1
@@ -821,7 +845,7 @@ def report_1(
             addC += 1
             rowNo += 1
 
-    # -------------- All info ------------------
+    ##### -------------- All info ------------------
     wsAllInformation = wb.create_sheet("Raw Outlier Data")
     wsAllInformation.cell(
         row=1, column=1
@@ -842,7 +866,7 @@ def report_1(
         row=1, column=1
     ).value = "This shee has general information which explains the results and the data that has been used to calculate the summaries."
 
-    # ---------- Explaining the priority actions sheet ----------
+    ##### ---------- Explaining the priority actions sheet ----------
 
     wsReference.cell(row=3, column=1).value = "Priority Actions sheet:"
     wsReference.cell(
@@ -866,11 +890,11 @@ def report_1(
     wsReference.cell(row=7, column=2).value = "Attributes impacted"
     wsReference.cell(
         row=7, column=3
-    ).value = "The specific attribute in which the modelling has shown the improvement. This is included because this report can model the impact of permission changes across all attributes in a given set of identities, however its msot common use case will be for specific attribute anlaysis."
+    ).value = "The specific attribute in which the modelling has shown the improvement. This \nis included because this report can model the impact of permission changes across all \nattributes in a given set of identities, however its msot common use case will be for \nspecific attribute anlaysis."
     wsReference.cell(row=8, column=2).value = "Likelihood of impact"
     wsReference.cell(
         row=8, column=3
-    ).value = "The % contributing factor that the specific attribute and action taken on the specified identity contributed to the change in identity permissivity. This is from 0-100% where 0% indicates the action made no difference and 100% means it definitely made a difference. Values between these indicate the relative impact that any given action like had on the results of the re-modelling. This is calculated by assessing the % of other identities who either have or don't have the permission. An identity which has a unique permission that is then removed, and conversly an identity who is the only one without a permission which then has it added, will have a 100% chance of reducing the permissivity distance because this unique permission will increase the identities difference relative to all other identities. If an permission is not unique to an identity then there is a chance that adding/removing the permission will actually increase the permissivity distance for a small number of identities who were similar to that identity beforehand. This is because of the a complex relationships between all identities which are simplified with the MDS algorithm which serves to minimise the global errors sometimes at the expense of local errors. It is impossible to individually model the impact of every permission in isolation because by definition the permissivity distances is a results of the relationship between identities NOT in isolation. For the modelling, only permissions which will have a contribution score of at least 80% are considered."
+    ).value = "The % contributing factor that the specific attribute and action taken on the \nspecified identity contributed to the change in identity permissivity. This is from \n0-100% where 0% indicates the action made no difference and 100% means it definitely \nmade a difference. Values between these indicate the relative impact that any given \naction like had on the results of the re-modelling. This is calculated by assessing the \n% of other identities who either have or don't have the permission. An identity which \nhas a unique permission that is then removed, and conversly an identity who is the only \none without a permission which then has it added, will have a 100% chance of reducing \nthe permissivity distance because this unique permission will increase the identities \ndifference relative to all other identities. If an permission is not unique to an \nidentity then there is a chance that adding/removing the permission will actually \nincrease the permissivity distance for a small number \n identities who were similar to \nthat identity beforehand. This is because of the a complex relationships between all \nidentities which are simplified with the MDS algorithm which serves to minimise the \nglobal errors sometimes at the expense of local errors. It is impossible to individually \nmodel the impact of every permission in isolation because by definition the permissivity \ndistances is a results of the relationship between identities NOT in isolation. For the \nmodelling, only permissions which will have a contribution score of at least 80% are \nconsidered."
     print(f"----- {reportPath} created -----")
     wb.save(filename=reportPath)
 
@@ -1106,6 +1130,7 @@ def report_3(plotIDdf, permissions, uiddf, attribute, hover_data, reportName):
 
     select_data = [h for h in hover_data if h.find("DateTime") == -1]
 
+    # add random changes for TESTING purposes
     plotIDdf = add_random_changes(
         plotIDdf,
         cols=[
