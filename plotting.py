@@ -80,12 +80,15 @@ def track_elements(
     dfIDInclSort["diff"] = np.sum(
         dfIDInclSort.groupby([uidAttr])[["Dim0", "Dim1", "Dim2"]].diff() ** 2, 1
     ).sort_values()
-    idMovement = np.round(dfIDInclSort.groupby(uidAttr)["diff"].sum(), 2)
-    idMoveDesc = idMovement.describe()
-    q3 = idMoveDesc.loc["75%"]
-    iqr = q3 - idMoveDesc.loc["25%"]
-    rng = iqr * 1.5 + q3
-    idsOutlier = idMovement[idMovement > rng].index
+    idMovement = np.round(dfIDInclSort.groupby([uidAttr, attribute])["diff"].sum(), 2)
+    idsOutlier = []
+    for attr in elements:
+        idMoveAttr = idMovement.loc[slice(None), attr]
+        idMoveDesc = idMoveAttr.describe()
+        q3 = idMoveDesc.loc["75%"]
+        iqr = q3 - idMoveDesc.loc["25%"]
+        rng = iqr * 1.5 + q3
+        idsOutlier += list(idMoveAttr[idMoveAttr > rng].index)
 
     # Calculate the aggregate statistics for the attribute plotting
     dfTrack = (
@@ -127,13 +130,15 @@ def track_elements(
                 x=eletrdf["Dim0"],
                 y=eletrdf["Dim1"],
                 z=eletrdf["Dim2"],
-                customdata=eletrdf[custom_hover_data],
+                customdata=eletrdf,
                 hovertemplate=f"<b>Grouping: {ele}</b><br>"
                 + f"<i>Identity count: %{'{customdata[0]}'}</i><br><br>"
                 + "<br>".join(
                     [
                         f"{h}: %{'{customdata['+str(n)+']}'}"
-                        for n, h in enumerate(custom_hover_data)
+                        for n, h in enumerate(
+                            [h for h in custom_hover_data if h.find("_") == -1]
+                        )  # display custom data if it does NOT start with "_"
                     ]
                 ),
                 marker=dict(
@@ -178,12 +183,14 @@ def track_elements(
                 x=eletrdf["Dim0"],
                 y=eletrdf["Dim1"],
                 z=eletrdf["Dim2"],
-                customdata=eletrdf[hover_data],
+                customdata=eletrdf,
                 hovertemplate=f"<b>{uidAttr}: %{'{customdata['}{hover_data.index(uidAttr)}{']}'}</b><br><br>"
                 + "<br>".join(
                     [
                         f"{h}: %{'{customdata['+str(n)+']}'}"
-                        for n, h in enumerate(hover_data)
+                        for n, h in enumerate(
+                            [h for h in hover_data if h.find("_") == -1]
+                        )  # display custom data if it does NOT start with "_"
                     ]
                 ),
                 marker=dict(
@@ -192,14 +199,15 @@ def track_elements(
                     line=dict(width=1, color="white"),
                 ),  # include has an opacity of 1
                 line=dict(color=selected_colours),
-                name=id,  # NOTE this must be a string/number
+                name=f"Outlier:{id}",  # NOTE this must be a string/number
                 legendgroup=[
-                    eletrdf[attribute].unique()[0]
+                    f"{eletrdf[attribute].unique()[0]} outliers" 
                     if len(eletrdf[attribute].unique()) == 1
-                    else "mixed"
+                    else "Mixed attribute outliers"
                 ][
                     0
-                ],  # NOTE this must be a string/number
+                ],  # group the outliers by the selected attribute
+                # legendgroup=list(set(eletrdf[uidAttr]))[0]  # use the uid as a legend group for the plotting
                 # connectgaps=True        # NOTE for some reason this isn't acutally connecting gaps.... maybe wrong data type for empty? '
                 hoverlabel=dict(namelength=0),
             )
@@ -339,17 +347,27 @@ def cluster_identities(
     hover_data = sorted(hover_data)
 
     # ------
-    fig = px.scatter_3d(pd.DataFrame(None))
+    fig = go.Figure()
+    dfPosIncl.rename(
+        columns={"_Count": "Count", "_ClusterID": "ClusterID"}, inplace=True
+    )
+    dfPosExcl.rename(
+        columns={"_Count": "Count", "_ClusterID": "ClusterID"}, inplace=True
+    )
+    dfPosIncl = dfPosIncl[
+        ["ClusterID", "Count"]
+        + [l for l in list(dfPosIncl.columns) if l != "Count" and l != "ClusterID"]
+    ]
 
     # the clusters to include
     for ele in sorted(dfPosIncl[attribute].unique()):
         dfPosInclAttr = dfPosIncl[dfPosIncl[attribute] == ele]
         selected_sizes = [
-            int(np.ceil(c / sizes.max() * 50)) for c in dfPosInclAttr["_Count"]
+            int(np.ceil(c / sizes.max() * 50)) for c in dfPosInclAttr["Count"]
         ]
         fig.add_scatter3d(
             connectgaps=False,
-            customdata=dfPosInclAttr[["_ClusterID", "_Count"] + hover_data],
+            customdata=dfPosInclAttr,
             x=dfPosInclAttr["Dim0"],
             y=dfPosInclAttr["Dim1"],
             z=dfPosInclAttr["Dim2"],
@@ -361,7 +379,10 @@ def cluster_identities(
             + "<br>".join(
                 [
                     f"{h}: %{'{customdata['+str(n)+']}'}"
-                    for n, h in enumerate(["Count"] + hover_data, 1)
+                    for n, h in enumerate(
+                        ["ClusterID", "Count"]
+                        + [h for h in hover_data if h.find("_") == -1]
+                    )  # display custom data if it does NOT start with "_"
                 ]
             ),
             legendgroup=ele,
@@ -376,13 +397,11 @@ def cluster_identities(
         for ele in sorted(dfPosExcl[attribute].unique()):
             dfPosExclAttr = dfPosExcl[dfPosExcl[attribute] == ele]
             selected_sizes = [
-                int(np.ceil(c / sizes.max() * 40)) for c in dfPosExclAttr["_Count"]
+                int(np.ceil(c / sizes.max() * 40)) for c in dfPosExclAttr["Count"]
             ]
             fig.add_scatter3d(
                 connectgaps=False,
-                customdata=dfPosExclAttr[
-                    ["_ClusterID", "_Count"] + hover_data
-                ],  # include the clusterID, counts and selected hoverdata only
+                customdata=dfPosExclAttr,
                 x=dfPosExclAttr["Dim0"],
                 y=dfPosExclAttr["Dim1"],
                 z=dfPosExclAttr["Dim2"],
@@ -397,10 +416,12 @@ def cluster_identities(
                 + "<br>".join(
                     [
                         f"{h}: %{'{customdata['+str(n)+']}'}"
-                        for n, h in enumerate(["Count"] + hover_data, 1)
+                        for n, h in enumerate(
+                            ["Count"] + [h for h in hover_data if h.find("_") == -1], 1
+                        )  # display custom data if it does NOT start with "_"
                     ]
                 ),
-                legendgroup=f"{ele} Excluded",
+                legendgroup=f"Excluded",        # group the excluded element together
                 name=f"{ele} Excluded",
                 hoverlabel=dict(namelength=0),
             )
@@ -408,7 +429,6 @@ def cluster_identities(
             # fig.data[-1].marker.opacity = 0.4
 
     # remove the initial non plot
-    fig.data = fig.data[1:]
     fig.update_layout(legend={"itemsizing": "constant"})
 
     allTimesFormat = dfIDIncl["_PermissionDateTime"].unique()
@@ -486,7 +506,7 @@ def plot_identities(
         dfPosInclAttr = dfTimeIncl[dfTimeIncl[attribute] == ele]
         fig.add_scatter3d(
             connectgaps=False,
-            customdata=dfPosInclAttr[hover_data],
+            customdata=dfPosInclAttr,
             x=dfPosInclAttr["Dim0"],
             y=dfPosInclAttr["Dim1"],
             z=dfPosInclAttr["Dim2"],
@@ -494,21 +514,23 @@ def plot_identities(
             marker=dict(
                 color=colourDict[ele],
                 opacity=1,
-                size=10,
+                size=15 if emphasise else 10,
                 line=dict(width=1, color="black")
                 if emphasise
                 else dict(width=1, color="white"),
-                symbol="square" if emphasise else "circle",
+                symbol="circle",
             ),  # include has an opacity of 1
             hovertemplate=f"<b>{attribute}: %{'{customdata['}{hover_data.index(attribute)}{']}'}</b><br>"
             + f"<i>{uidAttr}: %{'{customdata['}{hover_data.index(uidAttr)}{']}'}</i><br><br>"
             + "<br>".join(
                 [
                     f"{h}: %{'{customdata['+str(n)+']}'}"
-                    for n, h in enumerate(hover_data)
+                    for n, h in enumerate(
+                        [h for h in hover_data if h.find("_") == -1]
+                    )  # display custom data if it does NOT start with "_"
                 ]
             ),
-            legendgroup=ele,
+            legendgroup="Selected identities" if emphasise else ele,
             name="Selected identities" if emphasise else ele,
             hoverlabel=dict(namelength=0),
         )
@@ -520,7 +542,7 @@ def plot_identities(
             dfPosExclAttr = dfTimeExcl[dfTimeExcl[attribute] == ele]
             fig.add_scatter3d(
                 connectgaps=False,
-                customdata=dfPosExclAttr[hover_data],
+                customdata=dfPosExclAttr,
                 x=dfPosExclAttr["Dim0"],
                 y=dfPosExclAttr["Dim1"],
                 z=dfPosExclAttr["Dim2"],
@@ -533,7 +555,9 @@ def plot_identities(
                 + "<br>".join(
                     [
                         f"{h}: %{'{customdata['+str(n)+']}'}"
-                        for n, h in enumerate(hover_data)
+                        for n, h in enumerate(
+                            [h for h in hover_data if h.find("_") == -1]
+                        )  # display custom data if it does NOT start with "_"
                     ]
                 ),
                 legendgroup=f"{ele} Excluded",
@@ -622,6 +646,7 @@ def mesh_layers(fig, df, colourDict, label):
             alphahull=0,
             hoverlabel=dict(namelength=0),
             hovertemplate=f"<b>{label} Outliers</b><br>",
+            legendgroup=label,
         )
 
     # highlight the points which are within the normal range and plot as slighly darker/core identities
@@ -634,6 +659,7 @@ def mesh_layers(fig, df, colourDict, label):
         alphahull=0,
         hoverlabel=dict(namelength=0),
         hovertemplate=f"<b>{label} Core</b><br>",
+        legendgroup=label,
     )
 
     return fig
