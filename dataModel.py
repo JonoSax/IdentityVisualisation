@@ -289,24 +289,19 @@ class DataModel(object):
 
         return entitleExtract
 
-    def mergeIdentityData(self, mdsPositions):
+    def mergeIdentityData(self, mdsPositions, keep_misssing_ids=True):
 
         # merge all identity information if available, remove unnecessary columns
         if self.identityData is not None:
-            selectColums = [
-                r
-                for r in list(self.identityData.columns)
-                if r.lower().find("unnamed") == -1
-            ]
-            identityExtract = self.identityData[selectColums]
-            """
-            formatColumns0 = [
-                r.replace(" ", "") for r in list(posidentitiesSelect.columns)
-            ]
-            identityExtract = posidentitiesSelect.set_axis(
-                formatColumns0, axis=1, inplace=False
+            selectColums = sorted(
+                [
+                    r
+                    for r in list(self.identityData.columns)
+                    if r.lower().find("unnamed") == -1
+                ]
             )
-            """
+            identityExtract = self.identityData[selectColums]
+            
             # Join the data based on the available information
             if "_DateTime" in identityExtract.columns:
                 mdsPositions["_DateTime"] = mdsPositions["_DateTime"].astype(int)
@@ -325,12 +320,22 @@ class DataModel(object):
                     left_by=self.joinKeys["permission"],
                     right_by=self.joinKeys["identity"],
                     direction="nearest",
-                ).fillna("No ID data")
-                # posdf = posdf.drop(self.joinKeys["permission"])     # Keep just the uid from the identity dataframe
+                )
+
+                # where the modelled position did not match to any explicilty stored identity, exclude
+                if not keep_misssing_ids:
+                    posdf = posdf[~posdf[self.joinKeys["identity"]].isna()]
+
+                else:
+                    posdf.fillna("No ID data", inplace=True)
+                    # posdf = posdf.drop(self.joinKeys["permission"], axis = 1)     # Keep just the uid from the identity dataframe
             else:
 
                 posdf = pd.merge(
-                    mdsPositions, identityExtract, left_on=self.joinKeys["permission"]
+                    mdsPositions,
+                    identityExtract,
+                    left_on=self.joinKeys["permission"],
+                    right_on=self.joinKeys["identity"]
                 ).fillna("No ID data")
 
         else:
