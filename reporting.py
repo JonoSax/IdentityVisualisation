@@ -1,20 +1,20 @@
 import os
+import random
+from time import localtime, strftime
+
 import numpy as np
 import pandas as pd
-from time import localtime, strftime
 from openpyxl import Workbook
-from utilities import *
-import random
 
+from utilities import *
 
 pd.options.mode.chained_assignment = None
 
 """
 TODO:
 
-    - For the outlier detection, tbh straight line distance may not be the best metric for measuring error. 
-    A data point may be an outlier because it is out by a lot in one dimension but this might not be captured by 
-    a straight line distance.
+    - For the outlier detection, tbh straight line distance may not be the best metric for measuring error. A data point may be an outlier because it is out by a lot in one dimension but this might not be captured by a straight line distance.
+        UPDATE straight line is indeed the best way because being out on one dimension is arbituary given the orientation of the axis
 
     - Add descriptions of each input 
 """
@@ -411,7 +411,7 @@ def report_1(
     dist.outlierEntitlements()
 
     # create the report as an excel and save in the downloads
-    timeInfo = strftime("%Y%m%d.%H%M", localtime())
+    timeInfo = strftime("%Y-%m-%d_%H.%M.%S", localtime())
     reportPath = f"{os.path.expanduser('~')}\\Downloads\\{reportName}_{timeInfo}.xlsx"
     wb = Workbook()
     del wb["Sheet"]
@@ -758,14 +758,20 @@ def report_1(
 
     # ----- ID specific changes -----
 
-    addToReport(wsPriorityActions, ["Identity", "%Access variation change by attribute"], rowNo)
+    addToReport(
+        wsPriorityActions, ["Identity", "%Access variation change by attribute"], rowNo
+    )
     addToReport(
         wsPriorityActions,
         [""] + [d.replace("__Distance", "") for d in distInfo.columns],
         rowNo,
     )
     for id, values in distInfo.iterrows():
-        addToReport(wsPriorityActions, [id] + [f"{int(v*100)}%" for v in values.to_list()], rowNo)
+        addToReport(
+            wsPriorityActions,
+            [id] + [f"{int(v*100)}%" for v in values.to_list()],
+            rowNo,
+        )
     rowNo += 1
 
     # ----- Actions to take -----
@@ -864,14 +870,14 @@ def report_1(
     wsReference = wb.create_sheet("Reference")
     wsReference.cell(
         row=1, column=1
-    ).value = "This shee has general information which explains the results and the data that has been used to calculate the summaries."
+    ).value = "This sheet has general information which explains the results and the data that has been used to calculate the summaries."
 
     ##### ---------- Explaining the priority actions sheet ----------
 
     wsReference.cell(row=3, column=1).value = "Priority Actions sheet:"
     wsReference.cell(
         row=3, column=2
-    ).value = "This sheet describes the specific actions which, if taken, have been modelled to altera the permission environment. This will MOSTLY positive improvements in the permission space (ie will reduce identity spread and increase clusterting). However negative improvements can occur, most often when there are sub-clusters of the modelled element which makes it hard for the identity to be optimised. This does not invalidate the entire results, moreso it just requires qualitative analysis as to whether there are sub-clusters. Ideally these sub-clusters would be seperated somehow into distinct clusters."
+    ).value = "This workbook describes the specific actions which, if taken, have been modelled to \nalter the permission environment. This will MOSTLY positive improvements in the permission \nspace (ie will reduce identity spread and increase clusterting). However negative \nimprovements can occur, most often when there are sub-clusters of the modelled element \nwhich makes it hard for the identity to be optimised. This does not invalidate the entire \nresults, moreso it just requires qualitative analysis as to whether there are sub-clusters. \nIdeally these sub-clusters would be seperated somehow into distinct clusters."
 
     wsReference.cell(row=4, column=2).value = "Permissions to action"
     wsReference.cell(
@@ -1102,7 +1108,7 @@ def report_2(
             )
         rowNo += 1
 
-    timeInfo = strftime("%Y%m%d.%H%M", localtime())
+    timeInfo = strftime("%Y-%m-%d_%H.%M.%S", localtime())
     reportPath = f"{os.path.expanduser('~')}\\Downloads\\{reportName}_{timeInfo}.xlsx"
     wb.save(filename=reportPath)
 
@@ -1235,7 +1241,7 @@ def save_selected_information(selectIDdf, permdf, uiddf, filePath):
     rowNo = np.array(3)
 
     # get the datetime of the identities in the form for the permission dataframe
-    selectdt = list(set(selectIDdf["_PermissionDateTime"]))[-1]
+    selectdt = list(set(selectIDdf["_IdentityDateTime"]))[-1]
     dt = [
         dt
         for dt in list(set(permdf.index.get_level_values(1)))
