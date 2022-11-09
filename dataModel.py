@@ -1,12 +1,13 @@
+import os
+from datetime import datetime
+from glob import glob
+from hashlib import sha256
+
 import numpy as np
 import pandas as pd
-from glob import glob
-from datetime import datetime
-import os
-from dashboard import launchApp
-from utilities import *
-from hashlib import sha256
 from pandas.util import hash_pandas_object as hash_pd
+
+from utilities import *
 
 # NOTE this has been set to turn off unnecessary warnings regarding a df modification in the
 # plotMDS function
@@ -64,7 +65,14 @@ class DataModel(object):
         self.identityData = pd.DataFrame(None)
         self.mdsResults = pd.DataFrame(None)
         self.processingType = "identity"
-        self.joinKeys = {"identity": None, "permission": None, "role": None}
+        self.joinKeys = {
+            "identity": None,
+            "permission": None,
+            "rolefilekey": None,
+            "roleidkey": None,
+            "managerkey": None,
+        }
+        self.managerIDs = None
         self.permissionValue = None
         self.mdsSavedResults = None
 
@@ -79,7 +87,8 @@ class DataModel(object):
         Take the data information and report the information in the dashboard
         """
 
-        launchApp(self)
+        # launchApp(self)
+        pass
 
     def processType(self, processName: str):
 
@@ -102,10 +111,6 @@ class DataModel(object):
         self.identityData = self.rawIdentityData
 
     def processPermissions(self):
-
-        idSelect = list(self.identityData[self.joinKeys["identity"]].unique())
-
-        pivotSelect = f"{self.joinKeys['permission']}_DateTime"
 
         # this is joining the identity and permission data as only the identities in the
         # identityData are INCLUDED in the permission data.
@@ -151,7 +156,7 @@ class DataModel(object):
         pivot = modRoleData.pivot_table(
             values=self.rawRoleData.columns[0],
             columns="Value",
-            index=[self.joinKeys["role"], "_DateTime"],
+            index=[self.joinKeys["rolefilekey"], "_DateTime"],
             aggfunc="count",
             fill_value=0,
         )
@@ -159,7 +164,7 @@ class DataModel(object):
 
         # add the role information to the identity dataframe
         roledf = pd.DataFrame(None, columns=self.identityData.columns)
-        roledf[self.joinKeys["role"]] = pivot.index.get_level_values(0)
+        roledf[self.joinKeys["roleidkey"]] = pivot.index.get_level_values(0)
         roledf[self.joinKeys["identity"]] = pivot.index.get_level_values(0)
         roledf["_DateTime"] = -1
 
@@ -167,8 +172,6 @@ class DataModel(object):
 
         # add the role division information and fake datetime to the permission array (when it is processes)
         self.categories = np.r_[self.categories, np.array([*pivot.index.to_numpy()])]
-
-        self.categories
 
     def processPrivilege(self):
 
@@ -180,6 +183,17 @@ class DataModel(object):
             return
 
         self.privilegedData = self.privilegedData.set_index("Permission")
+
+    def processManager(self):
+
+        """
+        Take the list of managers inputted and return only the identities which have managers
+        """
+
+        if self.managerIDs is not None:
+            self.identityData = self.identityData[
+                self.identityData[self.joinKeys["managerkey"]].isin(self.managerIDs)
+            ]
 
     def hashData(self, len=8):
 
@@ -229,6 +243,7 @@ class DataModel(object):
         self.processPermissions()
         self.processPrivilege()
         self.processRoles()
+        self.processManager()
         self.hashData()
 
         # attribute data requires the category information as well
@@ -256,7 +271,7 @@ class DataModel(object):
             print(f"     Using {csvPath} to load pre-calculated results")
             mdsPositions = pd.read_csv(csvPath)
 
-        self.mdsResults = self.mergeIdentityData(mdsPositions)
+        self.mergeIdentityData(mdsPositions, True)
 
     def calculateMDS(self, method="mds"):
 
@@ -289,7 +304,17 @@ class DataModel(object):
 
         return entitleExtract
 
-    def mergeIdentityData(self, mdsPositions, keep_misssing_ids=True):
+    def mergeIdentityData(self, mdsPositions, keep_misssing_ids=False):
+
+        """
+        Combine the mds data with whatever identity data exists
+
+        mdsPositions : pd.DataFrame
+            Unique identifiers and their positions is 3D space
+
+        keep_missing_ids : Boolean
+            Check if there are ids in the permission data which do not exist in the identity data. If set to True, keep these data and add in "No ID data" to their attributes. If False (default) remove from further processing.
+        """
 
         # merge all identity information if available, remove unnecessary columns
         if self.identityData is not None:
@@ -301,7 +326,7 @@ class DataModel(object):
                 ]
             )
             identityExtract = self.identityData[selectColums]
-            
+
             # Join the data based on the available information
             if "_DateTime" in identityExtract.columns:
                 mdsPositions["_DateTime"] = mdsPositions["_DateTime"].astype(int)
@@ -322,10 +347,22 @@ class DataModel(object):
                     direction="nearest",
                 )
 
-                # where the modelled position did not match to any explicilty stored identity, exclude
+                # where the modelled position did not match to any explicilty stored identity, exclude the identities and permissions not explicitly joined
                 if not keep_misssing_ids:
                     posdf = posdf[~posdf[self.joinKeys["identity"]].isna()]
 
+                    self.permissionData = self.permissionData[
+                        self.permissionData.index.isin(
+                            self.identityData[self.joinKeys["identity"]][
+                                self.identityData["_DateTime"] != -1
+                            ].unique(),
+                            0,
+                        )
+                    ]
+
+                    # NOTE should include logging here which outputs which identities from each permission and identity data set are NOT included
+
+                # if there are identities in the permission data but no identity attributes, just add in "No ID data" to all attributes and include all identities referenced in the permissions
                 else:
                     posdf.fillna("No ID data", inplace=True)
                     # posdf = posdf.drop(self.joinKeys["permission"], axis = 1)     # Keep just the uid from the identity dataframe
@@ -335,10 +372,10 @@ class DataModel(object):
                     mdsPositions,
                     identityExtract,
                     left_on=self.joinKeys["permission"],
-                    right_on=self.joinKeys["identity"]
+                    right_on=self.joinKeys["identity"],
                 ).fillna("No ID data")
 
         else:
             posdf = mdsPositions
 
-        return posdf
+        self.mdsResults = posdf
