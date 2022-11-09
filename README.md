@@ -49,7 +49,16 @@ TODO:
 
     - Create unit testing and validation 
 
+    - Enable the ability to track identities with multiple roles
+
     - Create reports which explicilty address ISO standards
+
+    - From identified roles, model the roles which minimise errors for specific individuals
+        - Recommend the entitlements which would minimise the number of entitlements needed to be exceptional (ADDING only)
+
+    - Implement a Shepard plot to report on the actual distance vs fitted distance for validation purposes
+
+    - Make the reports display in html rather than as an excel doc (makes it nicer to view and more interactive)
 
     - Get the excel writing/reporting capabilities
         - RBAC: 
@@ -75,9 +84,7 @@ TODO:
             - Report on how various departments/jobs positions/other attributes permission spread is looking and if that is changing
 
         - Insights:
-            - How to incorporate BloodHound to identify privileged escaltation and travel in data? 
-
-    - Change the permissions dataframe to be multi-index
+            - How to incorporate BloodHound (or similar) to identify privileged escaltation and travel in data? 
 
     - Create new test data sets 
         - Create for a small testing set and a LARGE validation/demonstration set
@@ -98,14 +105,10 @@ TODO:
     - Create proper logging (non-repudiatable?)
 
     - Add formatting so it looks like PwC product
-
-    - ? Create sliding k-means clustering algorithm
 		    
     - Monitor the level of risk in the permission space, a 2D graph just tracking overall spread and when it reaches a certain threshold it will be obvious
 
         - Maybe don't monitor everything, just key roles?
-
-    - Create and visualise the idealised roles in the graph. How can the clustering and outlier information then be applied for this idealised role
 
     - 
         
