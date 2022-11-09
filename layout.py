@@ -1,9 +1,10 @@
-from dash import html, dcc, dash_table
-import dash_daq as daq
 import os
 
+import dash_daq as daq
+from dash import dash_table, dcc, html
 
-def layout_maker(
+
+def pageone_layout(
     dataModel,
     dfID,
     hover_data,
@@ -365,7 +366,7 @@ def layout_maker(
             # ),
             # dcc.Store(data=dfRoles.to_json(orient="table"), id="roleData"),
             dcc.Store(data=dataModel.joinKeys["permission"], id="uidAttr"),
-            dcc.Store(data=dataModel.joinKeys["role"], id="roleAttr"),
+            dcc.Store(data=dataModel.joinKeys["roleidkey"], id="roleAttr"),
             dcc.Store(data=hover_data, id="hover_data"),
             dcc.Store(data=os.getpid(), id="pid"),
             dcc.Store(data="info", id="info"),
