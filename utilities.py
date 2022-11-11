@@ -1,12 +1,13 @@
-import numpy as np
-from sklearn import manifold
-from scipy.sparse import lil_matrix
-import pandas as pd
-from openpyxl import Workbook
-from plotly.colors import qualitative as colours
-from plotly.colors import hex_to_rgb
 from datetime import datetime
 from time import time
+
+import numpy as np
+import pandas as pd
+from openpyxl import Workbook
+from plotly.colors import hex_to_rgb
+from plotly.colors import qualitative as colours
+from scipy.sparse import lil_matrix
+from sklearn import manifold
 
 # from numba import jit
 
@@ -19,7 +20,7 @@ def create_datetime(t):
     Convert a unix timestampe into a human readable time stamp
     """
 
-    return datetime.fromtimestamp(int(t)).strftime("%m/%d/%Y, %H:%M:%S")
+    return datetime.fromtimestamp(int(t)).strftime("%d/%m/%Y")  # , %H:%M:%S")
 
 
 def mdsCalculation(
@@ -67,8 +68,18 @@ def mdsCalculation(
     # apply the impact of privileged permissions
     # NOTE normalising the positions because a dotproduct for values > 1 is significantly slower than values <= 1
     if len(privilegedData) > 0:
-        privilegeArray = np.array(privilegedData["RelativePrivilege"].astype(int)) / 10
-        permissionData[privilegedData.index] += privilegeArray
+        privliegePresent = permissionData.columns[
+            permissionData.columns.isin(privilegedData.index)
+        ]
+
+        privilegeArray = (
+            np.array(
+                privilegedData.loc[privliegePresent]["RelativePrivilege"].astype(int)
+            )
+            / 10
+        )
+
+        permissionData.loc[:, privliegePresent] += privilegeArray[privliegePresent]
         permissionData /= permissionData.max().max()
 
     # Insert the role data
@@ -123,7 +134,7 @@ def mdsCalculation(
         mds = manifold.MDS(
             n_components=dims,
             max_iter=500,
-            eps=1e-3,
+            eps=1,
             random_state=np.random.RandomState(seed=3),
             dissimilarity="precomputed",
             n_jobs=4,
@@ -137,7 +148,7 @@ def mdsCalculation(
     elif method == "isomap":
 
         isomap = manifold.Isomap(
-            n_neighbors=5,
+            n_neighbors=10 if len(dissimilarity) > 10 else len(dissimilarity) - 1,
             n_components=3,
         )
         start = time()
