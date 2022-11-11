@@ -1,6 +1,8 @@
 #!/usr/bin/python
 
+import os
 import sys
+from datetime import datetime
 from glob import glob
 
 import numpy as np
@@ -356,9 +358,18 @@ class CSVData(DataModel):
         )  # get up to the 5 most recent files
         iAll = None
         for path in dataPaths:
-            date = path.split("_")[-1].split(".")[0]
+            _, fileName = os.path.split(path)
+
+            # get the unix datetime from the file. If it is in the file name read it, otherwise get it from the file creation date
+            if "_" in fileName:
+                date = int(fileName.split("_")[-1].split(".")[0])
+            else:
+                date = int(os.path.getmtime(path))
+            date -= (
+                date + 13 * 60**2
+            ) % 86400  # round to the nearest day, compensate for the UTC timing
             iStore = pd.read_csv(path, dtype=str).dropna(how="all")  # [:500]
-            iStore["_DateTime"] = date  # this is only needed for the pivot table
+            iStore["_DateTime"] = str(date)  # this is only needed for the pivot table
 
             if iAll is None:
                 iAll = iStore
@@ -386,11 +397,16 @@ class CSVData(DataModel):
         # read in multiple files and combine. This assumes that multiple files with the same
         # key name are temporal versions of the information
         for path in dataPaths:
-            unixTime = int(
-                path.split("_")[-1].split(".")[0]
-            )  # get the date information from the file name
+            if "_" in path:
+                date = int(path.split("_")[-1].split(".")[0])
+            else:
+                date = int(os.path.getmtime(path))
+            date -= (
+                date + 13 * 60**2
+            ) % 86400  # round to the nearest day, compensate for the UTC timing
+
             pStore = pd.read_csv(path, dtype=str).dropna(how="all")
-            pStore["_DateTime"] = unixTime
+            pStore["_DateTime"] = date
 
             # remove any duplicate entries of the access and the identity
             if pAll is None:
@@ -479,7 +495,7 @@ def CsvData():
     rolePath = "data\\RoleData.csv"
 
     csvData = CSVData()
-    forceRecalculate = False
+    forceRecalculate = True
     csvData.getData(
         identityPath=identityPath,
         permissionPath=permissionPath,
