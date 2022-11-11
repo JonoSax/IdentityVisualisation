@@ -81,6 +81,11 @@ class DataModel(object):
         self.dir["results"] = f"{self.dir['wd']}results\\"
         self.dir["data"] = f"{self.dir['wd']}data\\"
 
+        if not os.path.exists(self.dir["results"]):
+            os.mkdir(self.dir["results"])
+        if not os.path.exists(self.dir["data"]):
+            os.mkdir(self.dir["results"])
+
     def plotMDS(self):
 
         """
@@ -269,11 +274,11 @@ class DataModel(object):
         else:
             csvPath = csvFiles[-1]
             print(f"     Using {csvPath} to load pre-calculated results")
-            mdsPositions = pd.read_csv(csvPath)
+            mdsPositions = pd.read_csv(csvPath, dtype=str)
 
-        self.mergeIdentityData(mdsPositions, True)
+        self.mergeIdentityData(mdsPositions)
 
-    def calculateMDS(self, method="mds"):
+    def calculateMDS(self, method="isomap"):
 
         print("     Calculating similarity matrix")
         # the rawPermissionData MUST be a pandas dataframe with the columns being the permissions
@@ -362,10 +367,9 @@ class DataModel(object):
 
                     # NOTE should include logging here which outputs which identities from each permission and identity data set are NOT included
 
-                # if there are identities in the permission data but no identity attributes, just add in "No ID data" to all attributes and include all identities referenced in the permissions
-                else:
-                    posdf.fillna("No ID data", inplace=True)
-                    # posdf = posdf.drop(self.joinKeys["permission"], axis = 1)     # Keep just the uid from the identity dataframe
+                posdf.fillna("No ID data", inplace=True)
+                # posdf = posdf.drop(self.joinKeys["permission"], axis = 1)     # Keep just the uid from the identity dataframe
+
             else:
 
                 posdf = pd.merge(
@@ -377,5 +381,7 @@ class DataModel(object):
 
         else:
             posdf = mdsPositions
+
+        posdf[["Dim0", "Dim1", "Dim2"]] = posdf[["Dim0", "Dim1", "Dim2"]].astype(float)
 
         self.mdsResults = posdf
