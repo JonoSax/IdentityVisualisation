@@ -1229,6 +1229,11 @@ def save_selected_information(selectIDdf, permdf, uiddf, filePath):
     wsIdentities = wb.create_sheet("Identities")
     wsIdentities.cell(row=1, column=1).value = "Selected identities"
 
+    # remove duplicated entires and sort by uiddf
+    selectIDdf.drop_duplicates(uiddf, inplace=True)
+    idOrder = selectIDdf[uiddf]
+    selectIDdf.sort_values(uiddf, inplace=True)
+
     rowNo = np.array(3)
     addToReport(wsIdentities, selectIDdf.columns, rowNo)
     for _, idInfo in selectIDdf.iterrows():
@@ -1248,9 +1253,19 @@ def save_selected_information(selectIDdf, permdf, uiddf, filePath):
         if create_datetime(dt) == selectdt
     ][0]
 
-    # get all the permissions of the selected identities
-    permsID = permdf.loc[(selectIDdf[uiddf].tolist(), dt), :].T
+    # get all the permissions of the selected identities in the order they were selected
+    permsID = permdf.loc[(idOrder, dt), :].T
     permsID = permsID[np.sum(permsID, 1) > 0]
+
+    # sort the permission df rows by the number of permissions (highest to lowest) then alphabetically and (NOT DOING THIS) the columns by the uiddf alphabetically (same as the selectIDdf)
+    permsID["_sum"] = permsID.sum(1)
+    permsID = (
+        permsID.reset_index()
+        .sort_values(by=["_sum", "Value"], ascending=[False, True])
+        .set_index("Value")
+        .drop("_sum", axis=1)
+    )
+    # permsID.reindex(sorted(permsID.columns), axis=1)
 
     addToReport(wsPermissions, permsID.columns.get_level_values(0), rowNo, colStart=2)
     addToReport(wsPermissions, ["Accesses"] + [selectdt] * len(permsID.columns), rowNo)
