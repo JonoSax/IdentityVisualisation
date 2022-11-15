@@ -361,7 +361,7 @@ class CSVData(DataModel):
             _, fileName = os.path.split(path)
 
             # get the unix datetime from the file. If it is in the file name read it, otherwise get it from the file creation date
-            if "_" in fileName:
+            if "_dt_" in fileName:
                 date = int(fileName.split("_")[-1].split(".")[0])
             else:
                 date = int(os.path.getmtime(path))
@@ -397,7 +397,7 @@ class CSVData(DataModel):
         # read in multiple files and combine. This assumes that multiple files with the same
         # key name are temporal versions of the information
         for path in dataPaths:
-            if "_" in path:
+            if "_dt_" in path:
                 date = int(path.split("_")[-1].split(".")[0])
             else:
                 date = int(os.path.getmtime(path))
@@ -473,7 +473,7 @@ def excelData(
     excelData.plotMDS()
 
 
-def CsvData():
+def CsvData(forceRecalculate = False):
 
     identityPath = "data\\RBACImplementationTest\\IdentitiesFake_*.csv"
     permissionPath = "data\\EntitlementsFakeAll_*.csv"
@@ -494,8 +494,17 @@ def CsvData():
     rolePath = None
     rolePath = "data\\RoleData.csv"
 
+    privilegedPath = None
+    privilegedPath = "fakedata\\PrivliegedData.csv"
+
+    rolePath = "fakedata\\RoleData.csv"
+    rolePath = None
+
+    permissionPath = "data\\Permissions*.csv"
+    identityPath = "data\\Identities*.csv"
+
     csvData = CSVData()
-    forceRecalculate = True
+    
     csvData.getData(
         identityPath=identityPath,
         permissionPath=permissionPath,

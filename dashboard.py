@@ -29,5 +29,5 @@ def launchApp(dataModel):
 
 if __name__ == "__main__":
 
-    csvData = CsvData()
+    csvData = CsvData(False)
     launchApp(csvData)
