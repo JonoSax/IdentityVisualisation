@@ -30,6 +30,7 @@ def mdsCalculation(
     dims=3,
     verbose=2,
     method="mds",
+    max_iter=500,
 ):
 
     """
@@ -133,7 +134,7 @@ def mdsCalculation(
 
         mds = manifold.MDS(
             n_components=dims,
-            max_iter=500,
+            max_iter=max_iter,
             eps=1,
             random_state=np.random.RandomState(seed=3),
             dissimilarity="precomputed",
@@ -148,8 +149,9 @@ def mdsCalculation(
     elif method == "isomap":
 
         isomap = manifold.Isomap(
-            n_neighbors=10 if len(dissimilarity) > 10 else len(dissimilarity) - 1,
+            n_neighbors=50,  # 10 if len(dissimilarity) > 10 else len(dissimilarity) - 1,
             n_components=3,
+            max_iter=max_iter,
         )
         start = time()
         pos = isomap.fit_transform(lil_matrix(dissimilarity))
@@ -186,8 +188,8 @@ def clusterData(df, uidAttr, attribute, sliderRoundValue, dictRules=None):
     """
 
     # perform the spatial clustering and tranform the positional information
+    sliderRoundValue = np.clip(sliderRoundValue, 0.001, 100)
     dfMod = df.copy()
-    dfMod["_IdentitiesCollected"] = dfMod[uidAttr]
     dfMod[["Dim0r", "Dim1r", "Dim2r"]] = dfMod[["Dim0", "Dim1", "Dim2"]].apply(
         lambda x: np.round(sliderRoundValue * np.round(x / sliderRoundValue), 2)
     )
@@ -202,9 +204,6 @@ def clusterData(df, uidAttr, attribute, sliderRoundValue, dictRules=None):
         "Dim1": "median",
         "Dim2": "median",
         "_Count": "median",
-        "_IdentitiesCollected": lambda x: ",".join(
-            [str(n) for n in x]
-        ),  # store all unique identifiers as a csv string
     }
 
     if dictRules is not None:

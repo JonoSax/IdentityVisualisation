@@ -41,9 +41,9 @@ class Metrics:
         sliderCluster=None,
     ):
 
-        self.plottedIdentities = self.setIDdf(plottedIdentities)
         self.key = uiddf
         self.attribute = attribute
+        self.plottedIdentities = self.setIDdf(plottedIdentities)
         self.permissions = self.setPermdf(permissions)
         self.specificTime = self.getTime(self.plottedIdentities, specificTime)
         self.sliderRound = np.float32(sliderRound)
@@ -97,6 +97,9 @@ class Metrics:
         Format the df to be useful for calculations
         """
 
+        # force the id key into a string
+        df[self.key] = df[self.key].astype(str)
+
         # set the multidmiensional positions as floats if they are present
         for d in [dim for dim in df.columns if "Dim" in dim]:
             df[d] = df[d].astype(float)
@@ -117,7 +120,7 @@ class Metrics:
         Transform the permission dataframe necessary for calculations
         """
 
-        df.set_index(((id, int(dt)) for id, dt in df.index), inplace=True)
+        df.set_index(((str(id), int(dt)) for id, dt in df.index), inplace=True)
 
         return df
 
@@ -761,15 +764,20 @@ def report_1(
     addToReport(
         wsPriorityActions, ["Identity", "%Access variation change by attribute"], rowNo
     )
+    attrColumns = [d.replace("__Distance", "") for d in distInfo.columns]
+    attrColLabel = sorted(attrColumns * 2)
+    attrColLabel[0::2] = [""] * len(attrColumns)
     addToReport(
         wsPriorityActions,
-        [""] + [d.replace("__Distance", "") for d in distInfo.columns],
+        attrColLabel,
         rowNo,
     )
     for id, values in distInfo.iterrows():
         addToReport(
             wsPriorityActions,
-            [id] + [f"{int(v*100)}%" for v in values.to_list()],
+            [id]
+            + [dist.identities.loc[id, dist.specificTime][ele] for ele in attrColumns]
+            + [f"{int(v*100)}%" for v in values.to_list()],
             rowNo,
         )
     rowNo += 1
@@ -932,11 +940,7 @@ def report_2(
     # ---------- Get the base objects and dataframes ----------
 
     # create the dictionary aggregation rule
-    aggDict = aggDict = {
-        hd: lambda x: list(set(x))[0] if len(set([str(n) for n in x])) == 1 else x
-        for hd in hover_data
-        if hd != attribute
-    }
+    aggDict = aggDict = {hd: lambda x: list(x) for hd in hover_data if hd != attribute}
 
     # get the clustering information
     pos = Metrics(
@@ -1020,7 +1024,7 @@ def report_2(
         ]  # store only the permissions which are unique in each cluster and the % occurence in their cluster
 
     colNo = np.array(1)
-    wsPermUnique.cell(row=5, column=2).value = f"Identities with permission"
+    wsPermUnique.cell(row=5, column=2).value = f"% identities with permission"
     for n, key in enumerate(diffDict.keys()):
         clusterInfo = diffDict[key].sort_values(ascending=False)
         wsPermUnique.cell(row=5, column=(n * 3 + 1)).value = f"{key} permissions"
@@ -1065,19 +1069,32 @@ def report_2(
         allDfAttr = pos.identities.loc[(slice(None), pos.specificTime), :][
             attr
         ].unique()
+
+        # if the number of elements for this attribute is more than half the number of identities and is more than 100 unique combinations then don't process
+        if len(allDfAttr) > len(pos.identities) / 2 and len(allDfAttr) > 100:
+            continue
         dfAttr = pd.DataFrame(None, index=sorted(allDfAttr), columns=pos.clusterNames)
         dfCluster = pos.dfClusters[[attr]]
         for clid, dc in dfCluster.iterrows():
             elements = dc[attr]
-            if type(elements) is str:
-                elements = np.array([elements])
+            if type(elements) is not list:
+                elements = [elements]
 
             # update each element with the proporption of each element in the cluster
             for e in list(set(elements)):
-                dfAttr.loc[e].loc[clid] = (elements == e).sum() / elements.__len__()
+                dfAttr.loc[e].loc[clid] = (
+                    np.array(elements) == e
+                ).sum() / elements.__len__()
 
-        # drop rows where there are no inputted values and replace nan with 0's
+        # drop rows where there are no inputted values and replace nan with 0's. Sort the table from the most identities is the clusters to least
         dfAttr = dfAttr.dropna(how="all").fillna(0)
+        dfAttr["_sum"] = (dfAttr*pos.clusterCount).sum(1)
+        dfAttr = (
+            dfAttr.reset_index()
+            .sort_values(by=["_sum", "index"], ascending=[False, True])
+            .set_index("index")
+            .drop("_sum", axis=1)
+        )
         attrBreakDowns[attr] = dfAttr
 
     # order the attributes by the least number of unique elements first

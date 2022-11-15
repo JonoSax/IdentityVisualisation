@@ -364,9 +364,9 @@ def cluster_identities(
     # the clusters to include
     for ele in sorted(dfPosIncl[attribute].unique()):
         dfPosInclAttr = dfPosIncl[dfPosIncl[attribute] == ele]
-        selected_sizes = [
-            int(np.ceil(c / sizes.max() * 50)) for c in dfPosInclAttr["Count"]
-        ]
+        selected_sizes = np.clip(
+            dfPosInclAttr["Count"] / sizes.max() * 50, 5, 50
+        ).astype(int)
         fig.add_scatter3d(
             connectgaps=False,
             customdata=dfPosInclAttr,
@@ -609,7 +609,9 @@ def plot_roles(
     if plotRelations:
         for idRoles in dfIDIncl[roleAttr].unique():
 
-            fig = mesh_layers(fig, dfIDIncl[dfIDIncl[roleAttr] == idRoles], colourDict, idRoles)
+            fig = mesh_layers(
+                fig, dfIDIncl[dfIDIncl[roleAttr] == idRoles], colourDict, idRoles
+            )
 
             # Don't include the legend of the line plots
             fig.data[-1].showlegend = False
