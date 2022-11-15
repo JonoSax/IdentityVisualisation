@@ -27,7 +27,7 @@ def pageone_layout(
                             html.Div(
                                 [dcc.Graph(id="plotly_figure")],
                                 style={
-                                    "width": "60%",
+                                    "width": "70%",
                                     "height": "600",
                                     "display": "inline-block",
                                 },
@@ -98,9 +98,10 @@ def pageone_layout(
                             html.Div(
                                 [
                                     dcc.Slider(
-                                        0,
+                                        -0.5,
                                         sliderValue,
-                                        value=0,
+                                        step=0.5,
+                                        value=-0.5,
                                         id="slider-rounding",
                                         disabled=False,
                                         marks=None,
@@ -258,7 +259,7 @@ def pageone_layout(
                         ],
                         style={
                             "display": "inline-block",
-                            "width": "30%",
+                            "width": "20%",
                             # "draggable": "true",
                             "vertical-align": "bottom",
                         },
