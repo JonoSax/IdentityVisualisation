@@ -225,7 +225,7 @@ def update_graph(
         )
 
     #  ---------- Cluster data around reduced spatial resolution ----------
-    elif sliderRoundValue > 0:
+    elif sliderRoundValue >= 0:
 
         fig, plotTitle, dfPlotIncl, dfPlotExcl = cluster_identities_dashboard(
             dfIDIncl,
@@ -305,7 +305,7 @@ def update_graph(
     fig.update_layout(
         title="<br>".join(wrap(plotTitle, width=50)),  # set the title
         clickmode="event+select",  # all for data to be collected by clicking
-        width=800,
+        width=1000,
         height=600,
         hovermode="closest",
         scene={
@@ -365,8 +365,8 @@ def update_graph(
         source="assets/PwC_fl_c.png",
         xref="paper",
         yref="paper",
-        x=1.2,
-        y=1.31,
+        x=0.1,
+        y=0.1,
         sizex=0.35,
         sizey=0.35,
         xanchor="right",
@@ -787,7 +787,7 @@ def update_output(
     If there is no rounding being performed:
         - There is no threshold of rounding to be performed
     """
-    if sliderRoundValue == 0:
+    if sliderRoundValue < 0:
         sliderClusterDisabled = True
 
     """
@@ -855,7 +855,7 @@ def update_buttons(sliderRounding, sliderClustering, trackingToggle):
         report1_child = "Disabled"
         report1_disabled = True
 
-    if sliderRounding == 0 or trackingToggle:
+    if sliderRounding < 0 or trackingToggle:
         report2_child = "Disabled"
         report2_disabled = True
 
