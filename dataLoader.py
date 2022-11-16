@@ -368,7 +368,9 @@ class CSVData(DataModel):
             date -= (
                 date + 13 * 60**2
             ) % 86400  # round to the nearest day, compensate for the UTC timing
-            iStore = pd.read_csv(path, dtype=str).dropna(how="all")  # [:500]
+            iStore = pd.read_csv(path, dtype=str, on_bad_lines="skip").dropna(
+                how="all"
+            )  # [:500]
             iStore["_DateTime"] = str(date)  # this is only needed for the pivot table
 
             if iAll is None:
@@ -405,7 +407,7 @@ class CSVData(DataModel):
                 date + 13 * 60**2
             ) % 86400  # round to the nearest day, compensate for the UTC timing
 
-            pStore = pd.read_csv(path, dtype=str).dropna(how="all")
+            pStore = pd.read_csv(path, dtype=str, on_bad_lines="skip").dropna(how="all")
             pStore["_DateTime"] = date
 
             # remove any duplicate entries of the access and the identity
@@ -429,9 +431,9 @@ class CSVData(DataModel):
         """
 
         if self.privilegedPath is not None:
-            self.privilegedData = pd.read_csv(self.privilegedPath, dtype=str).dropna(
-                how="all"
-            )
+            self.privilegedData = pd.read_csv(
+                self.privilegedPath, dtype=str, on_bad_lines="skip"
+            ).dropna(how="all")
 
     def getRoleData(self):
 
@@ -440,7 +442,9 @@ class CSVData(DataModel):
         """
 
         if self.rolePath is not None:
-            self.rawRoleData = pd.read_csv(self.rolePath, dtype=str).dropna(how="all")
+            self.rawRoleData = pd.read_csv(
+                self.rolePath, dtype=str, on_bad_lines="skip"
+            ).dropna(how="all")
 
 
 # ----------- Data processing and visualisation (main function) ----------
@@ -473,7 +477,7 @@ def excelData(
     excelData.plotMDS()
 
 
-def CsvData(forceRecalculate = False):
+def CsvData(forceRecalculate=False):
 
     identityPath = "data\\RBACImplementationTest\\IdentitiesFake_*.csv"
     permissionPath = "data\\EntitlementsFakeAll_*.csv"
@@ -504,7 +508,7 @@ def CsvData(forceRecalculate = False):
     identityPath = "data\\Identities*.csv"
 
     csvData = CSVData()
-    
+
     csvData.getData(
         identityPath=identityPath,
         permissionPath=permissionPath,
