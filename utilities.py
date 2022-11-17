@@ -233,6 +233,7 @@ def clusterData(df, uidAttr, attribute, sliderRoundValue, dictRules=None):
         cStore.append(f"Cluster {c}")
 
     dfPos["_ClusterID"] = cStore
+    dfPos["_Count"] = dfPos["_Count"].astype(int)
 
     # if the aggregation rule does not create data (ie it is just a simple string) then replace the uid value with the clusterID
     # NOTE I think this can actaully be done by the aggregation rule...
