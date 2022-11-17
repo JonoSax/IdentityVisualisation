@@ -306,7 +306,7 @@ def cluster_identities(
 
     # for all identity attributes, if they are all the same for all aggregated identities report it otherwise set as "Mixed".
     aggDict = {
-        hd: lambda x: list(set(x))[0] if len(set([str(n) for n in x])) == 1 else "Mixed"
+        hd: lambda x: list(x)[0] if len(set([str(n) for n in x])) == 1 else list(x)
         for hd in hover_data
         if hd != attribute
     }
@@ -377,16 +377,10 @@ def cluster_identities(
             marker=dict(
                 color=colourDict[ele], size=selected_sizes, opacity=1
             ),  # include has an opacity of 1
-            hovertemplate=f"<b>Grouping: {ele}</b><br><i>%{'{customdata[0]}'}</i><br><br>"
-            + "<br>".join(
-                [
-                    f"{h}: %{'{customdata['+str(n)+']}'}"
-                    for n, h in enumerate(
-                        ["ClusterID", "Count"]
-                        + [h for h in hover_data if h.find("_") == -1]
-                    )  # display custom data if it does NOT start with "_"
-                ]
+            hovertext=create_hovertexts(
+                dfPosInclAttr, attribute, ["ClusterID", "Count"], hover_data
             ),
+            hoverinfo="text",
             legendgroup=ele,
             name=ele,
             hoverlabel=dict(namelength=0),
@@ -505,13 +499,14 @@ def plot_identities(
 
     # the clusters to include
     for ele in sorted(dfTimeIncl[attribute].unique()):
-        dfPosInclAttr = dfTimeIncl[dfTimeIncl[attribute] == ele]
+        dfPosInfo = dfTimeIncl[dfTimeIncl[attribute] == ele]
+
         fig.add_scatter3d(
             connectgaps=False,
-            customdata=dfPosInclAttr,
-            x=dfPosInclAttr["Dim0"],
-            y=dfPosInclAttr["Dim1"],
-            z=dfPosInclAttr["Dim2"],
+            customdata=dfPosInfo,
+            x=dfPosInfo["Dim0"],
+            y=dfPosInfo["Dim1"],
+            z=dfPosInfo["Dim2"],
             mode="markers",
             marker=dict(
                 color=colourDict[ele],
@@ -522,16 +517,8 @@ def plot_identities(
                 else dict(width=1, color="white"),
                 symbol="circle",
             ),  # include has an opacity of 1
-            hovertemplate=f"<b>{attribute}: %{'{customdata['}{hover_data.index(attribute)}{']}'}</b><br>"
-            + f"<i>{uidAttr}: %{'{customdata['}{hover_data.index(uidAttr)}{']}'}</i><br><br>"
-            + "<br>".join(
-                [
-                    f"{h}: %{'{customdata['+str(n)+']}'}"
-                    for n, h in enumerate(
-                        [h for h in hover_data if h.find("_") == -1]
-                    )  # display custom data if it does NOT start with "_"
-                ]
-            ),
+            hovertext=create_hovertexts(dfPosInfo, attribute, uidAttr, hover_data),
+            hoverinfo="text",
             legendgroup="Selected identities" if emphasise else ele,
             name="Selected identities" if emphasise else ele,
             hoverlabel=dict(namelength=0),
@@ -552,16 +539,10 @@ def plot_identities(
                 marker=dict(
                     color=colourDict[ele], opacity=0.4
                 ),  # exclude has an opacity of 0.4
-                hovertemplate=f"<b>{attribute}: %{'{customdata['}{hover_data.index(attribute)}{']}'}</b><br>"
-                + f"<i>{uidAttr}: %{'{customdata['}{hover_data.index(uidAttr)}{']}'}</i><br><br>"
-                + "<br>".join(
-                    [
-                        f"{h}: %{'{customdata['+str(n)+']}'}"
-                        for n, h in enumerate(
-                            [h for h in hover_data if h.find("_") == -1]
-                        )  # display custom data if it does NOT start with "_"
-                    ]
+                hovertext=create_hovertexts(
+                    dfPosExclAttr, attribute, uidAttr, hover_data
                 ),
+                hoverinfo="text",
                 legendgroup=f"{ele} Excluded",
                 name=f"{ele} Excluded",
                 hoverlabel=dict(namelength=0),
@@ -662,3 +643,52 @@ def mesh_layers(fig, df, colourDict, label):
     )
 
     return fig
+
+
+def create_hovertexts(infodf, title, subtitles, hover_data=None, length=30):
+
+    """
+    Take an pandas array and produce the standard hovertext
+
+    infodf : pd.DataFrame
+        data frame containing info
+
+    title : str
+        the key info to identify in the hover text (bold)
+
+    subtitles : str
+        sub title info, can be multiple (italics)
+
+    hover_data : list
+        if supplied, select the columns of the data to include
+
+    length : int
+        length of the text to limit
+    """
+
+    if hover_data is None:
+        hover_data = list(infodf.columns)
+
+    if type(subtitles) is not list:
+        subtitles = [subtitles]
+
+    # create the formatted hovertext information
+    hovertexts = []
+    for _, info in infodf.iterrows():
+        hovertexts.append(
+            f"<b>{title}: {info[title]}</b><br>"
+            + "<br>".join([f"<i>{sub}: {info[sub]}</i>" for sub in subtitles])
+            + "<br><br>"
+            + "<br>".join(
+                [
+                    f"{h}: {info[h] if type(info[h]) != list else 'Mixed'}"
+                    if len(f"{h}: {info[h]}") < length or type(info[h]) == list
+                    else f"{h}: {info[h]}"[:length] + "..."
+                    for _, h in enumerate(
+                        [h for h in hover_data if h.find("_") == -1]
+                    )  # display custom data if it does NOT start with "_" and limit to 30 characters length. If the info is presented in a list then it will display "Mixed"
+                ]
+            )
+        )
+
+    return hovertexts
