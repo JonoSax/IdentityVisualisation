@@ -940,7 +940,7 @@ def report_2(
     # ---------- Get the base objects and dataframes ----------
 
     # create the dictionary aggregation rule
-    aggDict = aggDict = {hd: lambda x: list(x) for hd in hover_data if hd != attribute}
+    aggDict = {hd: lambda x: list(x) for hd in hover_data if hd != attribute}
 
     # get the clustering information
     pos = Metrics(
@@ -1247,9 +1247,9 @@ def save_selected_information(selectIDdf, permdf, uiddf, filePath):
     wsIdentities.cell(row=1, column=1).value = "Selected identities"
 
     # remove duplicated entires and sort by uiddf
-    selectIDdf.drop_duplicates(uiddf, inplace=True)
+    selectIDdf.drop_duplicates([uiddf, "_DateTime"], inplace=True)
     idOrder = selectIDdf[uiddf]
-    selectIDdf.sort_values(uiddf, inplace=True)
+    selectIDdf.sort_values([uiddf, "_DateTime"], inplace=True)
 
     rowNo = np.array(3)
     addToReport(wsIdentities, selectIDdf.columns, rowNo)
@@ -1271,7 +1271,7 @@ def save_selected_information(selectIDdf, permdf, uiddf, filePath):
     ][0]
 
     # get all the permissions of the selected identities in the order they were selected
-    permsID = permdf.loc[(idOrder, dt), :].T
+    permsID = pd.DataFrame([permdf.loc[(id, int(dt)), :] for _, (id, dt) in selectIDdf[[uiddf, "_DateTime"]].iterrows()]).T
     permsID = permsID[np.sum(permsID, 1) > 0]
 
     # sort the permission df rows by the number of permissions (highest to lowest) then alphabetically and (NOT DOING THIS) the columns by the uiddf alphabetically (same as the selectIDdf)
@@ -1285,7 +1285,7 @@ def save_selected_information(selectIDdf, permdf, uiddf, filePath):
     # permsID.reindex(sorted(permsID.columns), axis=1)
 
     addToReport(wsPermissions, permsID.columns.get_level_values(0), rowNo, colStart=2)
-    addToReport(wsPermissions, ["Accesses"] + [selectdt] * len(permsID.columns), rowNo)
+    addToReport(wsPermissions, ["Accesses"] + [create_datetime(t) for t in permsID.columns.get_level_values(1)], rowNo)
     for perm, idInfo in permsID.iterrows():
         addToReport(wsPermissions, [perm] + list(idInfo), rowNo)
 
