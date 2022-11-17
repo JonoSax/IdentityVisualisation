@@ -741,6 +741,7 @@ def report_1(
         key=distInfo.median(1).get, ascending=False
     )  # sort the distinfo by the median value of all attributes calculated for from largest to smallest
     distDesc = pd.Series(np.hstack(distInfo.to_numpy())).describe()
+    minIds = [dist.dfDistances[distAttr].idxmin()[ele] for ele in distAttr]
 
     # ----- Summary statement -----
 
@@ -749,10 +750,10 @@ def report_1(
         f"{int(distDesc['min']*100)} - {int(distDesc['max']*100)}% reduction in permission distances across all elements for an median of {int(distDesc['50%']*100)}%",
         (
             f"{distInfo.T.max().idxmax()} from {dist.identities.loc[distInfo.T.max().idxmax()].loc[dist.specificTime][dist.attribute][0]}"
-            f" in attribute {distInfo.max().idxmax().replace('_Distance', '')}"
-            f" will improve the most"
+            f" in attribute {distInfo.max().idxmax().replace('_Distance', '')} will improve the most"
         ),
-    ]
+        f"The identities which are the best representation of the elements are:",
+    ] + [f"{uiddf} {id} at {create_datetime(dt)} in {dist.identities.loc[id, dt][ele.replace('__Distance', '')]}" for (id, dt), ele in zip(minIds, distAttr)]
 
     for p in prioritySummary:
         addToReport(wsPriorityActions, [p], rowNo)
