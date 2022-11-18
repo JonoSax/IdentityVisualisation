@@ -163,98 +163,90 @@ def pageone_layout(
                                 # style={"max-height": "280px", "overflow-y": "auto"},
                             ),
                             # report1 button
+                            html.Button(
+                                "Outlier report",
+                                id="report_1",
+                                n_clicks=0,
+                                style={
+                                    "margin-top": "15px",
+                                },
+                            ),
                             html.Div(
-                                [
-                                    html.Button(
-                                        "Outlier report", id="report_1", n_clicks=0
-                                    ),
-                                ],
-                                style={"margin-left": "15px", "margin-top": "15px"},
+                                id="report_1_sub",
                             ),
                             # report2 button
-                            html.Div(
-                                [
-                                    html.Button(
-                                        "Cluster report",
-                                        id="report_2",
-                                        n_clicks=0,
-                                        hidden=True,
-                                    ),
-                                ],
-                                style={"margin-left": "15px", "margin-top": "15px"},
+                            html.Button(
+                                "Cluster report",
+                                id="report_2",
+                                n_clicks=0,
+                                hidden=True,
+                                style={
+                                    "margin-top": "15px",
+                                },
                             ),
                             # report2/clustering slider
+                            dcc.Slider(
+                                0,
+                                1,
+                                value=0,
+                                id="slider-clustering",
+                                disabled=False,
+                                marks=None,
+                                vertical=False,
+                            ),
                             html.Div(
-                                [
-                                    dcc.Slider(
-                                        0,
-                                        1,
-                                        value=0,
-                                        id="slider-clustering",
-                                        disabled=False,
-                                        marks=None,
-                                        vertical=False,
-                                    ),
-                                ],
-                                style={},
+                                id="report_2_sub",
                             ),
                             # report3 button
-                            html.Div(
-                                [
-                                    html.Button(
-                                        "BETA Identity changes report",
-                                        id="report_3",
-                                        n_clicks=0,
-                                    ),
-                                ],
-                                style={"margin-left": "15px", "margin-top": "15px"},
+                            html.Button(
+                                "BETA Identity changes report",
+                                id="report_3",
+                                n_clicks=0,
+                                style={
+                                    "margin-top": "15px",
+                                },
                             ),
                             # report3/time slider
-                            html.Div(
+                            dcc.Slider(
                                 # NOTE this is exactly the same as the date slide on the main graph EXCEPT it has an extra value which allows you to turn off the volume displayer (-1)
-                                [
-                                    dcc.Slider(
-                                        -1,
-                                        len(dtformat) - 1,
-                                        1,
-                                        value=-1,
-                                        # dttimes.min(), dttimes.max(),
-                                        # value = dttimes.max(),
-                                        marks={
-                                            n: {"label": d}
-                                            for n, d in enumerate(
-                                                ["Off"] + [""] * len(dtformat), -1
-                                            )
-                                        },
-                                        id="slider-meshtime",
-                                        disabled=False,
-                                        vertical=False,
-                                    ),
-                                    # html.Div(id='slider-output'),
-                                ],
-                                style={},
+                                -1,
+                                len(dtformat) - 1,
+                                1,
+                                value=-1,
+                                # dttimes.min(), dttimes.max(),
+                                # value = dttimes.max(),
+                                marks={
+                                    n: {"label": d}
+                                    for n, d in enumerate(
+                                        ["Off"] + [""] * len(dtformat), -1
+                                    )
+                                },
+                                id="slider-meshtime",
+                                disabled=False,
+                                vertical=False,
+                            ),
+                            html.Div(
+                                id="report_3_sub",
                             ),
                             # report4 button
+                            html.Button(
+                                "BETA Privilegd Access",
+                                id="report_4",
+                                n_clicks=0,
+                                style={"margin-top": "15px"},
+                            ),
                             html.Div(
-                                [
-                                    html.Button(
-                                        "BETA Privilegd Access",
-                                        id="report_4",
-                                        n_clicks=0,
-                                    ),
-                                ],
-                                style={"margin-left": "15px", "margin-top": "15px"},
+                                id="report_4_sub",
                             ),
                             # report5 button
+                            html.Button(
+                                "BETA Rare Access report",
+                                id="report_5",
+                                n_clicks=0,
+                                style={"margin-top": "15px"},
+                            ),
                             html.Div(
-                                [
-                                    html.Button(
-                                        "BETA Rare Access report",
-                                        id="report_5",
-                                        n_clicks=0,
-                                    ),
-                                ],
-                                style={"margin-left": "15px", "margin-top": "15px"},
+                                id="report_5_sub",
                             ),
                         ],
                         style={
