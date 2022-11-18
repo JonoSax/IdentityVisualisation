@@ -253,7 +253,7 @@ def update_graph(
         )
 
     # ---------- Plot the role data ----------
-    if len(dfRole) > 0:
+    if rolesurfaceToggle:
 
         fig = plot_roles_dashboard(
             fig,
@@ -323,9 +323,9 @@ def update_graph(
         if hoverinfoToggle:
             f.hovertemplate = None
             f.hoverinfo = "none"
-            fig.layout.scene.xaxis.showspikes = False
-            fig.layout.scene.yaxis.showspikes = False
-            fig.layout.scene.zaxis.showspikes = False
+            # fig.layout.scene.xaxis.showspikes = False
+            # fig.layout.scene.yaxis.showspikes = False
+            # fig.layout.scene.zaxis.showspikes = False
 
         # if there is a hovertemplate, remove frivilous info
         elif f.hovertemplate is not None:
@@ -498,6 +498,7 @@ def save_plot(click, fig, info, selectedAttr):
 # report 1
 @callback(
     Output("report_1", "n_clicks"),
+    Output("report_1_sub", "children"),
     Input("report_1", "n_clicks"),
     State("identitiesPlotted", "data"),
     State("uidAttr", "data"),
@@ -519,7 +520,7 @@ def report_1(click, idPlotted, uid, sliderDate, selectedAttr):
         privData = DFPRIV.copy()
         selectedAttr = selectedAttr.split(":")[0]
 
-        reporting.report_1(
+        output = reporting.report_1(
             idPlotted,
             permData,
             privData,
@@ -529,12 +530,16 @@ def report_1(click, idPlotted, uid, sliderDate, selectedAttr):
             selectedAttr,
         )
 
-    return 0
+    else:
+        output = ""
+
+    return 0, output
 
 
 # report 2
 @callback(
     Output("report_2", "n_clicks"),
+    Output("report_2_sub", "children"),
     Input("report_2", "n_clicks"),
     State("plotly_figure", "figure"),
     State("identitiesPlotted", "data"),
@@ -571,7 +576,7 @@ def report_2(
 
         reportName = "ClusterReport"
 
-        reporting.report_2(
+        output = reporting.report_2(
             idPlotted,
             permData,
             uid,
@@ -584,7 +589,10 @@ def report_2(
         )
         save_plot(True, fig, reportName, selectedAttr)
 
-    return 0
+    else:
+        output = ""
+
+    return 0, output
 
 
 # report 3
@@ -851,7 +859,7 @@ def update_buttons(sliderRounding, sliderClustering, trackingToggle):
     report3_child = "BETA Identity changes report"
     report3_disabled = False
 
-    if sliderRounding > 0 or trackingToggle:
+    if sliderRounding >= 0 or trackingToggle:
         report1_child = "Disabled"
         report1_disabled = True
 
