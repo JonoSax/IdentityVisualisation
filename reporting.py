@@ -235,22 +235,30 @@ class Metrics:
         allAttrDesc = self.dfDistances[attrDist].describe()
         outlierdf = None
         for attr in attrDist:
-            std = allAttrDesc[attr].loc["std"]
-            mean = allAttrDesc[attr].loc["mean"]
-            q3 = allAttrDesc[attr].loc["75%"]
-            iqr = q3 - allAttrDesc[attr].loc["25%"]
+            outType = attr.split("__Distance")[-1]
 
-            # 3 standard deviations from the mean of distances
-            # outliers = self.dfDistances[self.dfDistances[attr] > (mean + std*3)]
+            groupAttrDesc = self.dfDistances.groupby("Department")[attr].describe()
 
-            # 1.5 x iqr beyond the q3
-            outliers = self.dfDistances[self.dfDistances[attr] > (iqr * 1.5 + q3)]
+            for ele in groupAttrDesc.index:
+                std = groupAttrDesc.loc[ele]["std"]
+                mean = groupAttrDesc.loc[ele]["mean"]
+                q3 = groupAttrDesc.loc[ele]["75%"]
+                iqr = q3 - groupAttrDesc.loc[ele]["25%"]
 
-            outliers["type"] = attr.split("__Distance")[-1]
-            if outlierdf is None:
-                outlierdf = outliers
-            else:
-                outlierdf = pd.concat([outlierdf, outliers])
+                # 3 standard deviations from the mean of distances
+                # outliers = self.dfDistances[self.dfDistances[attr] > (mean + std*3)]
+
+                # 1.5 x iqr beyond the q3
+                outliers = self.dfDistances[
+                    (self.dfDistances[attr] > (iqr * 1.5 + q3))
+                    & (self.dfDistances[outType] == ele)
+                ]
+
+                outliers["type"] = outType
+                if outlierdf is None:
+                    outlierdf = outliers
+                else:
+                    outlierdf = pd.concat([outlierdf, outliers])
 
         self.outlierdf = outlierdf  # .reset_index()
 
@@ -411,11 +419,11 @@ def report_1(
         attr=attribute, specificTime=dist.specificTime, sumType="net"
     )
     dist.findOutliers()
+    if len(dist.outlierdf) == 0:
+        return "No outliers detected"
+
     dist.outlierEntitlements()
 
-    # create the report as an excel and save in the downloads
-    timeInfo = strftime("%Y-%m-%d_%H.%M.%S", localtime())
-    reportPath = f"{os.path.expanduser('~')}\\Downloads\\{reportName}_{timeInfo}.xlsx"
     wb = Workbook()
     del wb["Sheet"]
     # excelExport = pd.ExcelWriter(reportPath)
@@ -723,7 +731,7 @@ def report_1(
     ].astype(float)
     entitleExtract["_DateTime"] = entitleExtract["_DateTime"].astype(int)
     entitleExtract.loc[entitleExtract["Type"] == "Modified", "_DateTime"] = (
-        dist.specificTime + 1
+        dist.specificTime - 1
     )  # iterate the latest time to create the "future" permission
 
     #### RERUN THE OUTLIER CALCULATIONS AND THE CHANGE IN DISTANCE FROM THE MEDIAN POINT #####
@@ -733,15 +741,28 @@ def report_1(
     oldDists = dfIDsofInterest.loc[(slice(None), dist.specificTime), :][
         distAttr
     ].droplevel(1)
-    newDists = dfIDsofInterest.loc[(slice(None), dist.specificTime + 1), :][
+    newDists = dfIDsofInterest.loc[(slice(None), dist.specificTime - 1), :][
         distAttr
     ].droplevel(1)
-    distInfo = pd.DataFrame(1 - newDists / oldDists)
+    distInfo = pd.DataFrame(1 - newDists / oldDists)  # the % reduction in distance
     distInfo = distInfo.sort_index(
         key=distInfo.median(1).get, ascending=False
     )  # sort the distinfo by the median value of all attributes calculated for from largest to smallest
     distDesc = pd.Series(np.hstack(distInfo.to_numpy())).describe()
-    minIds = [dist.dfDistances[distAttr].idxmin()[ele] for ele in distAttr]
+
+    # find the identities in each element which are the closest to the median position
+    minIds = [
+        dist.dfDistances.groupby(ele.replace("__Distance", ""))[distAttr].idxmin()[ele]
+        for ele in distAttr
+    ]
+    bestFitIDs = [
+        [
+            f" - {uiddf} {id} at {create_datetime(dt)} in {ele} from {minIdAttr.index.name}"
+            for ele, (id, dt) in minIdAttr.iteritems()
+        ]
+        for minIdAttr in minIds
+    ]
+    bestFitIDs = [item for sublist in bestFitIDs for item in sublist]
 
     # ----- Summary statement -----
 
@@ -753,7 +774,7 @@ def report_1(
             f" in attribute {distInfo.max().idxmax().replace('_Distance', '')} will improve the most"
         ),
         f"The identities which are the best representation of the elements are:",
-    ] + [f"{uiddf} {id} at {create_datetime(dt)} in {dist.identities.loc[id, dt][ele.replace('__Distance', '')]}" for (id, dt), ele in zip(minIds, distAttr)]
+    ] + bestFitIDs
 
     for p in prioritySummary:
         addToReport(wsPriorityActions, [p], rowNo)
@@ -910,8 +931,15 @@ def report_1(
     wsReference.cell(
         row=8, column=3
     ).value = "The % contributing factor that the specific attribute and action taken on the \nspecified identity contributed to the change in identity permissivity. This is from \n0-100% where 0% indicates the action made no difference and 100% means it definitely \nmade a difference. Values between these indicate the relative impact that any given \naction like had on the results of the re-modelling. This is calculated by assessing the \n% of other identities who either have or don't have the permission. An identity which \nhas a unique permission that is then removed, and conversly an identity who is the only \none without a permission which then has it added, will have a 100% chance of reducing \nthe permissivity distance because this unique permission will increase the identities \ndifference relative to all other identities. If an permission is not unique to an \nidentity then there is a chance that adding/removing the permission will actually \nincrease the permissivity distance for a small number \n identities who were similar to \nthat identity beforehand. This is because of the a complex relationships between all \nidentities which are simplified with the MDS algorithm which serves to minimise the \nglobal errors sometimes at the expense of local errors. It is impossible to individually \nmodel the impact of every permission in isolation because by definition the permissivity \ndistances is a results of the relationship between identities NOT in isolation. For the \nmodelling, only permissions which will have a contribution score of at least 80% are \nconsidered."
+
+    # create the report as an excel and save in the downloads
+    timeInfo = strftime("%Y-%m-%d_%H.%M.%S", localtime())
+    name = f"{reportName}_{timeInfo}"
+    reportPath = f"{os.path.expanduser('~')}\\Downloads\\{name}.xlsx"
     print(f"----- {reportPath} created -----")
     wb.save(filename=reportPath)
+
+    return f"{name} saved"
 
 
 def report_2(
@@ -1089,7 +1117,7 @@ def report_2(
 
         # drop rows where there are no inputted values and replace nan with 0's. Sort the table from the most identities is the clusters to least
         dfAttr = dfAttr.dropna(how="all").fillna(0)
-        dfAttr["_sum"] = (dfAttr*pos.clusterCount).sum(1)
+        dfAttr["_sum"] = (dfAttr * pos.clusterCount).sum(1)
         dfAttr = (
             dfAttr.reset_index()
             .sort_values(by=["_sum", "index"], ascending=[False, True])
@@ -1127,8 +1155,13 @@ def report_2(
         rowNo += 1
 
     timeInfo = strftime("%Y-%m-%d_%H.%M.%S", localtime())
-    reportPath = f"{os.path.expanduser('~')}\\Downloads\\{reportName}_{timeInfo}.xlsx"
+    name = f"{reportName}_{timeInfo}"
+    reportPath = f"{os.path.expanduser('~')}\\Downloads\\{name}.xlsx"
     wb.save(filename=reportPath)
+
+    output = f"{name} saved"
+
+    return output
 
 
 def report_3(plotIDdf, permissions, uiddf, attribute, hover_data, reportName):
@@ -1272,7 +1305,12 @@ def save_selected_information(selectIDdf, permdf, uiddf, filePath):
     ][0]
 
     # get all the permissions of the selected identities in the order they were selected
-    permsID = pd.DataFrame([permdf.loc[(id, int(dt)), :] for _, (id, dt) in selectIDdf[[uiddf, "_DateTime"]].iterrows()]).T
+    permsID = pd.DataFrame(
+        [
+            permdf.loc[(id, int(dt)), :]
+            for _, (id, dt) in selectIDdf[[uiddf, "_DateTime"]].iterrows()
+        ]
+    ).T
     permsID = permsID[np.sum(permsID, 1) > 0]
 
     # sort the permission df rows by the number of permissions (highest to lowest) then alphabetically and (NOT DOING THIS) the columns by the uiddf alphabetically (same as the selectIDdf)
@@ -1286,7 +1324,12 @@ def save_selected_information(selectIDdf, permdf, uiddf, filePath):
     # permsID.reindex(sorted(permsID.columns), axis=1)
 
     addToReport(wsPermissions, permsID.columns.get_level_values(0), rowNo, colStart=2)
-    addToReport(wsPermissions, ["Accesses"] + [create_datetime(t) for t in permsID.columns.get_level_values(1)], rowNo)
+    addToReport(
+        wsPermissions,
+        ["Accesses"]
+        + [create_datetime(t) for t in permsID.columns.get_level_values(1)],
+        rowNo,
+    )
     for perm, idInfo in permsID.iterrows():
         addToReport(wsPermissions, [perm] + list(idInfo), rowNo)
 
