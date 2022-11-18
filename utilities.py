@@ -120,7 +120,9 @@ def mdsCalculation(
     dissimilarity = 1 - similarityPermissionData * similarityPermissionData.transpose()
 
     # perform dimensionality reduction
-    print(f"     Starting mds fit with {method}")
+    print(
+        f"     Starting mds fit with {method} for {len(allPermissionData)} unique permission identities"
+    )
 
     """
     Enforce the dissimilarities to float32 as a compromise of accuracy and speed
