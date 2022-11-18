@@ -49,6 +49,11 @@ TODO:
 
     - Create unit testing and validation 
 
+    - See how any given element corresponds with other elements
+
+    - Identify which permissions are assigned manually or detected?
+        - Need to determine if that is something which is standard info or not? 
+
     - Enable the ability to track identities with multiple roles
 
     - Create reports which explicilty address ISO standards

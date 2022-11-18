@@ -314,7 +314,7 @@ def cluster_identities(
     # get the clustered data
     dfPosIncl = clusterData(dfModIncl, uidAttr, attribute, sliderRoundValue, aggDict)
 
-    if len(dfIDExcl) > 0:
+    if len(dfIDExcl) > 0 and False:
 
         # add the excluded identities trace
         dfModExcl = dfIDExcl[
@@ -388,7 +388,7 @@ def cluster_identities(
 
         # fig.data[-1].marker.opacity = 1
 
-    if len(dfPosExcl) > 0:
+    if len(dfPosExcl) > 0 and False:
 
         for ele in sorted(dfPosExcl[attribute].unique()):
             dfPosExclAttr = dfPosExcl[dfPosExcl[attribute] == ele]
@@ -517,14 +517,16 @@ def plot_identities(
                 else dict(width=1, color="white"),
                 symbol="circle",
             ),  # include has an opacity of 1
-            hovertext=create_hovertexts(dfPosInfo, attribute, uidAttr, hover_data),
+            hovertext=create_hovertexts(
+                dfPosInfo, attribute, [uidAttr, "Sum of permissions"], hover_data
+            ),
             hoverinfo="text",
             legendgroup="Selected identities" if emphasise else ele,
             name="Selected identities" if emphasise else ele,
             hoverlabel=dict(namelength=0),
         )
 
-    if len(dfTimeExcl) > 0:
+    if len(dfTimeExcl) > 0 and False:
 
         # the clusters to include
         for ele in sorted(dfTimeExcl[attribute].unique()):
@@ -540,7 +542,7 @@ def plot_identities(
                     color=colourDict[ele], opacity=0.4
                 ),  # exclude has an opacity of 0.4
                 hovertext=create_hovertexts(
-                    dfPosExclAttr, attribute, uidAttr, hover_data
+                    dfPosExclAttr, attribute, [uidAttr, "Sum of permissions"], hover_data
                 ),
                 hoverinfo="text",
                 legendgroup=f"{ele} Excluded",
@@ -571,7 +573,7 @@ def plot_roles(
     for role in sorted(dfRole[roleAttr].unique()):
 
         dfR = dfRole[dfRole[uidAttr] == role]
-        dfIDRole = dfIDIncl[dfIDIncl[roleAttr] == role]
+        # dfIDRole = dfIDIncl[dfIDIncl[roleAttr] == role]
 
         fig.add_scatter3d(
             customdata=dfR[uidAttr],
@@ -627,6 +629,7 @@ def mesh_layers(fig, df, colourDict, label):
             hoverlabel=dict(namelength=0),
             hovertemplate=f"<b>{label} Outliers</b><br>",
             legendgroup=label,
+            name=label,
         )
 
     # highlight the points which are within the normal range and plot as slighly darker/core identities
@@ -639,7 +642,8 @@ def mesh_layers(fig, df, colourDict, label):
         alphahull=0,
         hoverlabel=dict(namelength=0),
         hovertemplate=f"<b>{label} Core</b><br>",
-        legendgroup=label,
+        legendgroup=f"Mesh: {label}",
+        name=f"Mesh: {label}",
     )
 
     return fig

@@ -244,8 +244,8 @@ class DataModel(object):
             print("     Impossible dimensions inputted")
             return
 
-        self.processIdentities()
         self.processPermissions()
+        self.processIdentities()
         self.processPrivilege()
         self.processRoles()
         self.processManager()
@@ -276,7 +276,7 @@ class DataModel(object):
             print(f"     Using {csvPath} to load pre-calculated results")
             mdsPositions = pd.read_csv(csvPath, dtype=str)
 
-        self.mergeIdentityData(mdsPositions)
+        self.mergeIdentityData(mdsPositions, keep_misssing_ids=False)
 
     def calculateMDS(self, method="isomap"):
 
@@ -307,12 +307,15 @@ class DataModel(object):
         ].astype(float)
         entitleExtract["_DateTime"] = entitleExtract["_DateTime"].astype(int)
 
+        entitleExtract["Sum of permissions"] = self.permissionData.sum(1).values
+
         return entitleExtract
 
     def mergeIdentityData(self, mdsPositions, keep_misssing_ids=False):
 
         """
         Combine the mds data with whatever identity data exists
+        Add the number of permissions assigned to each identity at each time interval
 
         mdsPositions : pd.DataFrame
             Unique identifiers and their positions is 3D space
