@@ -1,3 +1,4 @@
+import json
 import os
 from datetime import datetime
 from textwrap import wrap
@@ -114,13 +115,16 @@ def createInteractivePlot(app: Dash, dataModel: object):
         sliderValue,
     )
 
-    global DFID, DFROLE, DFPERM, DFPRIV, COLOR_DICT
+    global DFID, DFROLE, DFPERM, DFPRIV, COLOR_DICT, TABLE_INFO
 
     DFID = dfID[hover_data + [s for s in selectedData if s not in hover_data]]
     DFROLE = dfRoles
     DFPERM = dataModel.permissionData
     DFPRIV = dataModel.privilegedData
     COLOR_DICT = colour_dict
+    TABLE_INFO = (
+        []
+    )  # keep a global store of the identities that have been selected and stored in the table
 
     print("     Web app created")
 
@@ -323,9 +327,9 @@ def update_graph(
         if hoverinfoToggle:
             f.hovertemplate = None
             f.hoverinfo = "none"
-            fig.layout.scene.xaxis.showspikes = False
-            fig.layout.scene.yaxis.showspikes = False
-            fig.layout.scene.zaxis.showspikes = False
+            # fig.layout.scene.xaxis.showspikes = False
+            # fig.layout.scene.yaxis.showspikes = False
+            # fig.layout.scene.zaxis.showspikes = False
 
         # if there is a hovertemplate, remove frivilous info
         elif f.hovertemplate is not None:
@@ -639,8 +643,9 @@ def update_exit_button(click, pid):
     State("selected_points_table", "data"),
     State("hover_data", "data"),
     Input("plotly_figure", "clickData"),
+    State("uidAttr", "data"),
 )
-def add_row(rows, hover_data, inputSelection):
+def add_row(rows, hover_data, inputSelection, uiddf):
 
     """
     Create a toggle which allows you to select the permissions of each identity selected
@@ -648,6 +653,8 @@ def add_row(rows, hover_data, inputSelection):
     On the graph make the identities standout
         Might need to make a callback with just the figure output and what happens is there is another callback which is called containing a dictionary with all the relevant variables to create/update the graph as necessary
     """
+
+    global TABLE_INFO
 
     # if there is no input exit
     if inputSelection is None:
@@ -659,33 +666,67 @@ def add_row(rows, hover_data, inputSelection):
         return rows
 
     # extract the data
-    inputData = inputSelection["points"][0]["customdata"]
+    inputedData = inputSelection["points"][0]["customdata"]
 
     # if the selected data is cluster information just remove that info
-    if inputData[0].find("Cluster ") > -1:
-        inputData = inputData[2:]  # cluster number and cluster id
-    elif len(hover_data) > len(inputData):
+    if inputedData[0].find("Cluster ") > -1:
+        clusterName = inputedData[
+            0
+        ]  # If this is a cluster, the first value in the custome data is the cluster name
+        inputData = inputedData[2:]  # cluster number and cluster id
+    elif len(hover_data) > len(inputedData):
         return rows
+    else:
+        inputData = inputedData
+        clusterName = None
 
     print("----- Data added -----")
     d = {}
     for n, hd in enumerate(hover_data):
-        d[hd] = inputData[n]
+        d[hd] = inputData[n] if type(inputData[n]) != list else "Mixed"
+
+    # if there is a cluster, set the identity name to the cluster name
+    if clusterName is not None:
+        d[uiddf] = clusterName
+
     if rows == [] or rows is None:
         rows = [d]
     elif all(rows[-1][k] == "" for k in list(rows[-1])):
         rows = [d]
     else:
+        # store the raw data of the table
         rows.append(d)
+
+    TABLE_INFO.append(inputedData)
+    print(len(TABLE_INFO))
 
     return rows
 
 
 # action to perform when row is removed
-@callback(Output("output", "children"), Input("selected_points_table", "data_previous"))
-def remove_rows(previous):
-    if previous is not None:
-        return ""  # [f'Just removed {row}' for row in previous if row not in current]
+@callback(
+    Output("output", "children"),
+    Input("selected_points_table", "data_previous"),
+    Input("selected_points_table", "data"),
+)
+def remove_rows(previous, current):
+
+    # if there is no information, don't process (here to protect further comparsions)
+    if previous is None:
+        pass
+
+    # if a row has been removed then process
+    elif len(previous) > len(current):
+
+        global TABLE_INFO
+
+        # hash the dictionary containing the table info and identify which point is removed. Once identified, update the TABLE_INFO list store
+        prevIDs = [hash(json.dumps(p, sort_keys=True)) for p in previous]
+        currentIDs = [hash(json.dumps(c, sort_keys=True)) for c in current]
+        keptRows = [p in currentIDs for p in prevIDs]
+        TABLE_INFO = [p for p, k in zip(TABLE_INFO, keptRows) if k]
+
+    return ""  # [f'Just removed {row}' for row in previous if row not in current]
 
 
 # to save file name prompts and checks
@@ -711,10 +752,13 @@ def save_file(click, tab_data, filename, uiddf):
     else:
 
         filePath = f"{os.path.expanduser('~')}\\Downloads\\{filename}.xlsx"
+        # if the file is being saved then load and process the info
         if not os.path.exists(filePath):
 
+            global TABLE_INFO
             permData = DFPERM.copy()
             selectedIDdf = pd.DataFrame.from_records(tab_data)
+            TABLE_INFO
 
             reporting.save_selected_information(selectedIDdf, permData, uiddf, filePath)
 
