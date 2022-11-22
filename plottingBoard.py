@@ -48,9 +48,7 @@ def createInteractivePlot(app: Dash, dataModel: object):
     ]
 
     # Specify what data from the dataframe will be included in the hovertext
-    hover_data = [
-        s for s in selectedData if s.lower().find("dim") == -1  # and s.find("_") == -1
-    ]
+    hover_data = [s for s in selectedData if s[0] != "_"]  # and s.find("_") == -1
     # hover_data.remove("timeUnix")
 
     # create the colour dictionary to be used for all graphing
@@ -61,7 +59,6 @@ def createInteractivePlot(app: Dash, dataModel: object):
     marks = {}
     # convert the datetime object of the permission extract into a human readable format
     if "_DateTime" in selectedData:
-        selectedData.append("_PermissionDateTime")
         dfID = dfID.sort_values(
             ["_DateTime", dataModel.joinKeys["identity"]], ascending=True
         )
@@ -70,13 +67,8 @@ def createInteractivePlot(app: Dash, dataModel: object):
         dfRoles = dfID.copy()[dfID["_DateTime"] == -1]
         dfID = dfID[dfID["_DateTime"] > 0]
 
-        # convert the datetime object into a human readable time
-        dfID["_PermissionDateTime"] = dfID["_DateTime"].apply(
-            lambda x: create_datetime(int(x))
-        )
-
         # create the marks for the slider
-        dtformat = dfID["_PermissionDateTime"].unique()
+        dtformat = dfID["Permission Datetime"].unique()
         # dttimes = dfID["_DateTime"].unique()
 
         marks = {n: {"label": d} for n, d in enumerate(dtformat)}
@@ -93,9 +85,9 @@ def createInteractivePlot(app: Dash, dataModel: object):
     ]
     dropDownStart = dropDownOpt[attrArray[:, 1].astype(int).argsort()[0]]
 
-    xRng = dfID["Dim0"].max() - dfID["Dim0"].min()
-    yRng = dfID["Dim1"].max() - dfID["Dim1"].min()
-    zRng = dfID["Dim2"].max() - dfID["Dim2"].min()
+    xRng = dfID["__Dim0"].max() - dfID["__Dim0"].min()
+    yRng = dfID["__Dim1"].max() - dfID["__Dim1"].min()
+    zRng = dfID["__Dim2"].max() - dfID["__Dim2"].min()
     sliderValue = 2 * np.sqrt(xRng**2 + yRng**2 + zRng**2)
 
     # make data point selection
@@ -115,16 +107,13 @@ def createInteractivePlot(app: Dash, dataModel: object):
         sliderValue,
     )
 
-    global DFID, DFROLE, DFPERM, DFPRIV, COLOR_DICT, TABLE_INFO
+    global DFID, DFROLE, DFPERM, DFPRIV, COLOR_DICT
 
     DFID = dfID[hover_data + [s for s in selectedData if s not in hover_data]]
     DFROLE = dfRoles
     DFPERM = dataModel.permissionData
     DFPRIV = dataModel.privilegedData
     COLOR_DICT = colour_dict
-    TABLE_INFO = (
-        []
-    )  # keep a global store of the identities that have been selected and stored in the table
 
     print("     Web app created")
 
@@ -290,15 +279,15 @@ def update_graph(
     # ---------- Scale and format the plot ----------
 
     r = 0.1  # The extra bit to add to the graphs for scaling
-    xDif = dfID["Dim0"].max() - dfID["Dim0"].min()
-    yDif = dfID["Dim1"].max() - dfID["Dim1"].min()
-    zDif = dfID["Dim2"].max() - dfID["Dim2"].min()
-    xMin = dfID["Dim0"].min() - xDif * r
-    xMax = dfID["Dim0"].max() + xDif * r
-    yMin = dfID["Dim1"].min() - yDif * r
-    yMax = dfID["Dim1"].max() + yDif * r
-    zMin = dfID["Dim2"].min() - zDif * r
-    zMax = dfID["Dim2"].max() + zDif * r
+    xDif = dfID["__Dim0"].max() - dfID["__Dim0"].min()
+    yDif = dfID["__Dim1"].max() - dfID["__Dim1"].min()
+    zDif = dfID["__Dim2"].max() - dfID["__Dim2"].min()
+    xMin = dfID["__Dim0"].min() - xDif * r
+    xMax = dfID["__Dim0"].max() + xDif * r
+    yMin = dfID["__Dim1"].min() - yDif * r
+    yMax = dfID["__Dim1"].max() + yDif * r
+    zMin = dfID["__Dim2"].min() - zDif * r
+    zMax = dfID["__Dim2"].max() + zDif * r
 
     print(
         [xMin, xMax],
@@ -336,7 +325,7 @@ def update_graph(
 
             # remove the co-ordinate info (not useful)
             f.hovertemplate = f.hovertemplate.replace(
-                "Dim0=%{x}<br>Dim1=%{y}<br>Dim2=%{z}<br>", ""
+                "__Dim0=%{x}<br>__Dim1=%{y}<br>__Dim2=%{z}<br>", ""
             )
 
             # if there is color info, remove
@@ -648,12 +637,16 @@ def update_exit_button(click, pid):
 # NOTE change the graphing visualisation on clicking: https://plotly.com/python/click-events/
 @callback(
     Output("selected_points_table", "data"),
-    State("selected_points_table", "data"),
+    Output("table_info", "data"),
+    Output("plotly_figure", "clickData"),
+    Input("selected_points_table", "data"),
+    Input("selected_points_table", "data_previous"),
     State("hover_data", "data"),
     Input("plotly_figure", "clickData"),
+    State("table_info", "data"),
     State("uidAttr", "data"),
 )
-def add_row(rows, hover_data, inputSelection, uiddf):
+def table_management(current, previous, hover_data, inputSelection, table_info, uiddf):
 
     """
     Create a toggle which allows you to select the permissions of each identity selected
@@ -662,30 +655,42 @@ def add_row(rows, hover_data, inputSelection, uiddf):
         Might need to make a callback with just the figure output and what happens is there is another callback which is called containing a dictionary with all the relevant variables to create/update the graph as necessary
     """
 
-    global TABLE_INFO
+    # initiating condition where there is no information
+    if inputSelection is None and previous is None:
+        return current, table_info, None
 
-    # if there is no input exit
-    if inputSelection is None:
-        # rows = None
-        return rows
+    # protect the removed info process when first initialising the webapp
+    elif previous is None:
+        pass
+
+    # if a row has been removed then process
+    elif len(previous) > len(current) and inputSelection is None:
+
+        # hash the dictionary containing the table info and identify which point is removed. Once identified, update the TABLE_INFO list store
+        prevIDs = [hash(json.dumps(p, sort_keys=True)) for p in previous]
+        currentIDs = [hash(json.dumps(c, sort_keys=True)) for c in current]
+        keptRows = [p in currentIDs for p in prevIDs]
+        table_info = [p for p, k in zip(table_info, keptRows) if k]
+        return current, table_info, None
 
     # if there is no custom data
-    if inputSelection["points"][0].get("customdata") is None:
-        return rows
+    elif inputSelection["points"][0].get("customdata") is None:
+        return current, table_info, None
 
-    # extract the data
-    inputedData = inputSelection["points"][0]["customdata"]
+    # if information has been added to the table the process
+    if inputSelection["points"][0].get("customdata") is None:
+        return current, table_info, None
+    inputData = inputSelection["points"][0]["customdata"]
 
     # if the selected data is cluster information just remove that info
-    if inputedData[0].find("Cluster ") > -1:
-        clusterName = inputedData[
-            0
-        ]  # If this is a cluster, the first value in the custome data is the cluster name
-        inputData = inputedData[2:]  # cluster number and cluster id
-    elif len(hover_data) > len(inputedData):
-        return rows
+    if str(inputData[-1]).find("Cluster ") > -1:
+        clusterName = inputData[
+            -1
+        ]  # If this is a cluster, the last value in the custom data is the cluster name
+    # if there is something wrong with the data (ie there is less data than columns specified) don't process it any further
+    elif len(hover_data) > len(inputData):
+        return current, table_info, None
     else:
-        inputData = inputedData
         clusterName = None
 
     print("----- Data added -----")
@@ -697,45 +702,30 @@ def add_row(rows, hover_data, inputSelection, uiddf):
     if clusterName is not None:
         d[uiddf] = clusterName
 
-    if rows == [] or rows is None:
-        rows = [d]
-    elif all(rows[-1][k] == "" for k in list(rows[-1])):
-        rows = [d]
+    if current == [] or current is None:
+        current = [d]
+    elif all(current[-1][k] == "" for k in list(current[-1])):
+        current = [d]
     else:
         # store the raw data of the table
-        rows.append(d)
+        current.append(d)
 
-    TABLE_INFO.append(inputedData)
-    print(len(TABLE_INFO))
+    table_info.append(inputData)
 
-    return rows
+    return current, table_info, None
 
 
-# action to perform when row is removed
+"""# action to perform when row is removed
 @callback(
     Output("output", "children"),
     Input("selected_points_table", "data_previous"),
     Input("selected_points_table", "data"),
+    Input("table_info", "data"),
 )
 def remove_rows(previous, current):
 
-    # if there is no information, don't process (here to protect further comparsions)
-    if previous is None:
-        pass
-
-    # if a row has been removed then process
-    elif len(previous) > len(current):
-
-        global TABLE_INFO
-
-        # hash the dictionary containing the table info and identify which point is removed. Once identified, update the TABLE_INFO list store
-        prevIDs = [hash(json.dumps(p, sort_keys=True)) for p in previous]
-        currentIDs = [hash(json.dumps(c, sort_keys=True)) for c in current]
-        keptRows = [p in currentIDs for p in prevIDs]
-        TABLE_INFO = [p for p, k in zip(TABLE_INFO, keptRows) if k]
-
     return ""  # [f'Just removed {row}' for row in previous if row not in current]
-
+"""
 
 # to save file name prompts and checks
 @callback(
@@ -743,16 +733,17 @@ def remove_rows(previous, current):
     Output("input_filename", "value"),
     Output("submit_file", "n_clicks"),
     Input("submit_file", "n_clicks"),
-    State("selected_points_table", "data"),
+    State("table_info", "data"),
     State("input_filename", "value"),
+    State("hover_data", "data"),
     State("uidAttr", "data"),
 )
-def save_file(click, tab_data, filename, uiddf):
+def save_file(click, table_info, filename, hover_data, uiddf):
 
     # Save data as long as there is information etc
     if not click:
         placeholder = "Select data"
-    elif tab_data == [] or tab_data is None:
+    elif table_info == [] or table_info is None:
         placeholder = "Select data"
     elif filename == "":
         placeholder = "Set file name"
@@ -763,12 +754,19 @@ def save_file(click, tab_data, filename, uiddf):
         # if the file is being saved then load and process the info
         if not os.path.exists(filePath):
 
-            global TABLE_INFO
             permData = DFPERM.copy()
-            selectedIDdf = pd.DataFrame.from_records(tab_data)
-            TABLE_INFO
+            idData = DFID.copy()
 
-            reporting.save_selected_information(selectedIDdf, permData, uiddf, filePath)
+            table_df = pd.DataFrame([pd.Series(i) for i in table_info])
+            col = table_df.columns.to_list()
+            col[: len(idData.columns)] = idData.columns
+            col[len(idData.columns) :] = [
+                f"__Other{n}" for n in range(len(col) - len(idData.columns))
+            ]
+            table_df.columns = col
+
+            # reporting.save_selected_information(selectedIDdf, permData, uiddf, filePath)
+            reporting.save_selected_information(table_df, permData, uiddf, filePath)
 
             placeholder = "File saved"
             print(f"     File saved at {filePath}")

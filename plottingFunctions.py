@@ -2,14 +2,11 @@
 File which contains all the plotting functions used in the dashboard
 """
 
-from datetime import datetime
-
 import numpy as np
 import pandas as pd
 from plotly import express as px
 from plotly import graph_objects as go
 from plotly.colors import hex_to_rgb
-from plotly.colors import qualitative as colours
 
 from utilities import *
 
@@ -59,7 +56,7 @@ def track_elements(
         return go.Figure()
 
     allTimes = dfIDIncl["_DateTime"].unique()
-    allTimesFormat = dfIDIncl["_PermissionDateTime"].unique()
+    allTimesFormat = dfIDIncl["Permission Datetime"].unique()
     elements = dfIDIncl[attribute].unique()
 
     allSizes = np.linspace(4, 12, len(allTimes)).astype(int)
@@ -80,7 +77,7 @@ def track_elements(
     # Identify identities with access movement which is outsides the norm per element
     dfIDInclSort = dfIDIncl.sort_values([uidAttr, "_DateTime"], ascending=[True, False])
     dfIDInclSort["diff"] = np.sum(
-        dfIDInclSort.groupby([uidAttr])[["Dim0", "Dim1", "Dim2"]].diff() ** 2, 1
+        dfIDInclSort.groupby([uidAttr])[["__Dim0", "__Dim1", "__Dim2"]].diff() ** 2, 1
     ).sort_values()
     idMovement = np.round(dfIDInclSort.groupby([uidAttr, attribute])["diff"].sum(), 2)
     idsOutlier = []
@@ -94,8 +91,15 @@ def track_elements(
 
     # Calculate the aggregate statistics for the attribute plotting
     dfTrack = (
-        dfIDInclSort.groupby([attribute, "_DateTime", "_PermissionDateTime"])
-        .agg({"Dim0": "median", "Dim1": "median", "Dim2": "median", uidAttr: "count"})
+        dfIDInclSort.groupby([attribute, "_DateTime", "Permission Datetime"])
+        .agg(
+            {
+                "__Dim0": "median",
+                "__Dim1": "median",
+                "__Dim2": "median",
+                uidAttr: "count",
+            }
+        )
         .reset_index()
         .rename(columns={uidAttr: "Count"})
         .sort_values("_DateTime", ascending=False)
@@ -112,7 +116,7 @@ def track_elements(
     for t, s in zip(allTimes, allSizes):
         timeDict[t] = s
 
-    custom_hover_data = ["Count", attribute, "_PermissionDateTime"]
+    custom_hover_data = ["Count", attribute, "Permission Datetime"]
     for ele in sorted(elements):
 
         # ----------------- Track median position of identities in elements -----------------
@@ -129,9 +133,9 @@ def track_elements(
         # doco: https://plotly.github.io/plotly.py-docs/generated/plotly.graph_objects.Scatter3d.html
         fig.add_trace(
             go.Scatter3d(
-                x=eletrdf["Dim0"],
-                y=eletrdf["Dim1"],
-                z=eletrdf["Dim2"],
+                x=eletrdf["__Dim0"],
+                y=eletrdf["__Dim1"],
+                z=eletrdf["__Dim2"],
                 customdata=eletrdf,
                 hovertemplate=f"<b>Grouping: {ele}</b><br>"
                 + f"<i>Identity count: %{'{customdata[0]}'}</i><br><br>"
@@ -182,9 +186,9 @@ def track_elements(
         # doco: https://plotly.github.io/plotly.py-docs/generated/plotly.graph_objects.Scatter3d.html
         fig.add_trace(
             go.Scatter3d(
-                x=eletrdf["Dim0"],
-                y=eletrdf["Dim1"],
-                z=eletrdf["Dim2"],
+                x=eletrdf["__Dim0"],
+                y=eletrdf["__Dim1"],
+                z=eletrdf["__Dim2"],
                 customdata=eletrdf,
                 hovertemplate=f"<b>{uidAttr}: %{'{customdata['}{hover_data.index(uidAttr)}{']}'}</b><br><br>"
                 + "<br>".join(
@@ -356,10 +360,6 @@ def cluster_identities(
     dfPosExcl.rename(
         columns={"_Count": "Count", "_ClusterID": "ClusterID"}, inplace=True
     )
-    dfPosIncl = dfPosIncl[
-        ["ClusterID", "Count"]
-        + [l for l in list(dfPosIncl.columns) if l != "Count" and l != "ClusterID"]
-    ]
 
     # the clusters to include
     for ele in sorted(dfPosIncl[attribute].unique()):
@@ -370,15 +370,18 @@ def cluster_identities(
         fig.add_scatter3d(
             connectgaps=False,
             customdata=dfPosInclAttr,
-            x=dfPosInclAttr["Dim0"],
-            y=dfPosInclAttr["Dim1"],
-            z=dfPosInclAttr["Dim2"],
+            x=dfPosInclAttr["__Dim0"],
+            y=dfPosInclAttr["__Dim1"],
+            z=dfPosInclAttr["__Dim2"],
             mode="markers",
             marker=dict(
                 color=colourDict[ele], size=selected_sizes, opacity=1
             ),  # include has an opacity of 1
             hovertext=create_hovertexts(
-                dfPosInclAttr, attribute, ["ClusterID", "Count"], hover_data
+                dfPosInclAttr,
+                attribute,
+                ["ClusterID", "Count"],
+                hover_data,
             ),
             hoverinfo="text",
             legendgroup=ele,
@@ -398,9 +401,9 @@ def cluster_identities(
             fig.add_scatter3d(
                 connectgaps=False,
                 customdata=dfPosExclAttr,
-                x=dfPosExclAttr["Dim0"],
-                y=dfPosExclAttr["Dim1"],
-                z=dfPosExclAttr["Dim2"],
+                x=dfPosExclAttr["__Dim0"],
+                y=dfPosExclAttr["__Dim1"],
+                z=dfPosExclAttr["__Dim2"],
                 mode="markers",
                 marker=dict(
                     color=colourDict[ele],
@@ -427,7 +430,7 @@ def cluster_identities(
     # remove the initial non plot
     fig.update_layout(legend={"itemsizing": "constant"})
 
-    allTimesFormat = dfIDIncl["_PermissionDateTime"].unique()
+    allTimesFormat = dfIDIncl["Permission Datetime"].unique()
 
     plotTitle = f"Plotting and overlaying {len(dfModIncl)} identities for {len(dfPosIncl)} clusters colored based on {attribute} with a spatial resolution of {sliderRoundValue} from {allTimesFormat[sliderDateValue]} {clusteringInfo}"
 
@@ -491,7 +494,7 @@ def plot_identities(
     else:
         dfTimeExcl = pd.DataFrame(None, columns=dfIDIncl.columns)
 
-    allTimesFormat = dfIDIncl["_PermissionDateTime"].unique()
+    allTimesFormat = dfIDIncl["Permission Datetime"].unique()
 
     # Remove the uid from the hoverdata so that it has to be explicitly included
     if fig is None:
@@ -504,9 +507,9 @@ def plot_identities(
         fig.add_scatter3d(
             connectgaps=False,
             customdata=dfPosInfo,
-            x=dfPosInfo["Dim0"],
-            y=dfPosInfo["Dim1"],
-            z=dfPosInfo["Dim2"],
+            x=dfPosInfo["__Dim0"],
+            y=dfPosInfo["__Dim1"],
+            z=dfPosInfo["__Dim2"],
             mode="markers",
             marker=dict(
                 color=colourDict[ele],
@@ -534,15 +537,18 @@ def plot_identities(
             fig.add_scatter3d(
                 connectgaps=False,
                 customdata=dfPosExclAttr,
-                x=dfPosExclAttr["Dim0"],
-                y=dfPosExclAttr["Dim1"],
-                z=dfPosExclAttr["Dim2"],
+                x=dfPosExclAttr["__Dim0"],
+                y=dfPosExclAttr["__Dim1"],
+                z=dfPosExclAttr["__Dim2"],
                 mode="markers",
                 marker=dict(
                     color=colourDict[ele], opacity=0.4
                 ),  # exclude has an opacity of 0.4
                 hovertext=create_hovertexts(
-                    dfPosExclAttr, attribute, [uidAttr, "Sum of permissions"], hover_data
+                    dfPosExclAttr,
+                    attribute,
+                    [uidAttr, "Sum of permissions"],
+                    hover_data,
                 ),
                 hoverinfo="text",
                 legendgroup=f"{ele} Excluded",
@@ -577,9 +583,9 @@ def plot_roles(
 
         fig.add_scatter3d(
             customdata=dfR[uidAttr],
-            x=dfR["Dim0"],
-            y=dfR["Dim1"],
-            z=dfR["Dim2"],
+            x=dfR["__Dim0"],
+            y=dfR["__Dim1"],
+            z=dfR["__Dim2"],
             mode="markers",
             marker=dict(color=colourDict[role], opacity=1, symbol="diamond", size=10),
             hovertemplate=f"<b>Role: {role}</b><br>",
@@ -608,7 +614,7 @@ def mesh_layers(fig, df, colourDict, label):
     Plot 3d meshes to highlight the position of the identities with respect to the median position of all identities within a given element
     """
 
-    pos = df[["Dim0", "Dim1", "Dim2"]]
+    pos = df[["__Dim0", "__Dim1", "__Dim2"]]
     midPos = np.median(pos, 0)
     diff = np.sum((pos - midPos) ** 2, 1)
     diffDesc = diff.describe()
@@ -620,9 +626,9 @@ def mesh_layers(fig, df, colourDict, label):
     if not np.all((diff < rng) == True):
 
         fig.add_mesh3d(
-            x=df["Dim0"],
-            y=df["Dim1"],
-            z=df["Dim2"],
+            x=df["__Dim0"],
+            y=df["__Dim1"],
+            z=df["__Dim2"],
             color=colourDict[label],
             opacity=0.02,  # opacity is from lightest to darkest on time
             alphahull=0,
@@ -634,9 +640,9 @@ def mesh_layers(fig, df, colourDict, label):
 
     # highlight the points which are within the normal range and plot as slighly darker/core identities
     fig.add_mesh3d(
-        x=df[diff <= rng]["Dim0"],
-        y=df[diff <= rng]["Dim1"],
-        z=df[diff <= rng]["Dim2"],
+        x=df[diff <= rng]["__Dim0"],
+        y=df[diff <= rng]["__Dim1"],
+        z=df[diff <= rng]["__Dim2"],
         color=colourDict[label],
         opacity=0.15,  # opacity is from lightest to darkest on time
         alphahull=0,
@@ -670,11 +676,15 @@ def create_hovertexts(infodf, title, subtitles, hover_data=None, length=30):
         length of the text to limit
     """
 
+    # if there is no hover data, only display the information in the df if it meant to be visible (ie no _ or __ at the start)
     if hover_data is None:
-        hover_data = list(infodf.columns)
+        hover_data = [i for i in infodf.columns if i[0] != "_"]
 
     if type(subtitles) is not list:
         subtitles = [subtitles]
+
+    # Remove from the hover data the title (str) or subtitle (list) entries to prevent duplication of information
+    hover_data = [h for h in hover_data if h not in subtitles and h != title]
 
     # create the formatted hovertext information
     hovertexts = []

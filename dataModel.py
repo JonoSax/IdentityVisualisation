@@ -302,8 +302,8 @@ class DataModel(object):
         )
 
         # force the positions and datetime to be float/int
-        entitleExtract[["Dim0", "Dim1", "Dim2"]] = entitleExtract[
-            ["Dim0", "Dim1", "Dim2"]
+        entitleExtract[["__Dim0", "__Dim1", "__Dim2"]] = entitleExtract[
+            ["__Dim0", "__Dim1", "__Dim2"]
         ].astype(float)
         entitleExtract["_DateTime"] = entitleExtract["_DateTime"].astype(int)
 
@@ -340,10 +340,17 @@ class DataModel(object):
                 mdsPositions["_DateTime"] = mdsPositions["_DateTime"].astype(int)
                 identityExtract["_DateTime"] = identityExtract["_DateTime"].astype(int)
                 mdsPositions = mdsPositions.sort_values("_DateTime")
+
+                # add in the datetimes into a human readable format
                 identityExtract = identityExtract.sort_values("_DateTime")
-                identityExtract["_IdentityDateTime"] = identityExtract[
+                identityExtract["Identity Datetime"] = identityExtract[
                     "_DateTime"
                 ].apply(lambda x: create_datetime(x) if x > 0 else None)
+
+                mdsPositions["Permission Datetime"] = mdsPositions["_DateTime"].apply(
+                    lambda x: create_datetime(x) if x > 0 else None
+                )
+
                 # match for identity extracts with the closest in time to the entitlement extract. If there is no identity matched then the individual who is modelled will still be included (this is a left join), however they will have not associated identity data.
                 # NOTE a tolerance of a week, tolerance = 604800
                 posdf = pd.merge_asof(
@@ -385,6 +392,8 @@ class DataModel(object):
         else:
             posdf = mdsPositions
 
-        posdf[["Dim0", "Dim1", "Dim2"]] = posdf[["Dim0", "Dim1", "Dim2"]].astype(float)
+        posdf[["__Dim0", "__Dim1", "__Dim2"]] = posdf[
+            ["__Dim0", "__Dim1", "__Dim2"]
+        ].astype(float)
 
         self.mdsResults = posdf

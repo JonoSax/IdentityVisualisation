@@ -1,5 +1,6 @@
 import os
 import random
+from hashlib import sha256
 from time import localtime, strftime
 
 import numpy as np
@@ -164,7 +165,7 @@ class Metrics:
         for a, newCol in zip(attr, newCols):
 
             if sumType == "axis":
-                newCol = [f"{d}_{newCol}" for d in ["Dim0", "Dim1", "Dim2"]]
+                newCol = [f"{d}_{newCol}" for d in ["__Dim0", "__Dim1", "__Dim2"]]
 
             attributeValues = df[a].unique()
 
@@ -172,13 +173,13 @@ class Metrics:
             dfCopy = None
             for av in attributeValues:
                 dfAttr = df[df[a] == av][
-                    ["Dim0", "Dim1", "Dim2", self.key, "_DateTime", a]
+                    ["__Dim0", "__Dim1", "__Dim2", self.key, "_DateTime", a]
                 ]
 
                 # NOTE the getTime ALWAYS takes the most recent time information so that the comparsions are made with the most recent data
                 centrePoint = np.median(
                     dfAttr[dfAttr["_DateTime"] == self.getTime(dfAttr)][
-                        ["Dim0", "Dim1", "Dim2"]
+                        ["__Dim0", "__Dim1", "__Dim2"]
                     ],
                     0,
                 )
@@ -187,12 +188,12 @@ class Metrics:
                 # permission)
                 if sumType == "net":
                     dists = np.sum(
-                        (dfAttr[["Dim0", "Dim1", "Dim2"]] - centrePoint) ** 2, 1
+                        (dfAttr[["__Dim0", "__Dim1", "__Dim2"]] - centrePoint) ** 2, 1
                     )
 
                 # if the error is calculated per axis
                 elif sumType == "axis":
-                    dists = np.abs(dfAttr[["Dim0", "Dim1", "Dim2"]] - centrePoint)
+                    dists = np.abs(dfAttr[["__Dim0", "__Dim1", "__Dim2"]] - centrePoint)
 
                 dfAttr[newCol] = dists
 
@@ -625,7 +626,7 @@ def report_1(
         .reset_index()
     )
 
-    priorityPermissions = list(priority["Value"])
+    priorityPermissions = list(priority["Value"]).copy()
 
     rowNo = np.array(4)
     removeC = 0
@@ -636,9 +637,10 @@ def report_1(
     priorityInfo = []
     # For up to 10 permissions (max of 7 to either add or remove), investigate the permissions to
     # prioritise actions for
+    n = 0
     while removeC + addC < 10 and len(priorityPermissions) > 0:
-        pi = priorityPermissions.pop(0)
-        if pi in "Access0" in privData.index:
+        pi = priorityPermissions[n]
+        if pi in privData.index:
             pi = f"{pi} **Privilege level {int(privData.loc[pi])}"
 
         pAnalysis = dist.rawOutlierInfo[dist.rawOutlierInfo["Value"] == pi]
@@ -658,6 +660,7 @@ def report_1(
             removeC += 1
             removePermission[pi] = ids
             idsImpacted += ids
+            priorityPermissions[n] = None
 
         # To add the permissions
         addP = pAnalysis[pAnalysis["Occurence"] < 0]
@@ -674,6 +677,12 @@ def report_1(
             addC += 1
             addPermission[pi] = ids
             idsImpacted += ids
+            priorityPermissions[n] = None
+
+        n += 1
+
+    # remove any priority permissions that were used
+    priorityPermissions = [p for p in priorityPermissions if p is not None]
 
     # get the unique entries of ids
     idsImpacted = list(set(idsImpacted))
@@ -715,7 +724,7 @@ def report_1(
 
     # re-calculate the mds
     perMos = mdsCalculation(allPerm, privData, method="isomap")
-    dimNames = [f"Dim{n}_R" for n in range(3)]
+    dimNames = [f"__Dim{n}_R" for n in range(3)]
 
     # merge all the positional and identity data together
     entitleExtract = pd.DataFrame(
@@ -726,8 +735,8 @@ def report_1(
         dist.identities.loc[(slice(None), dist.specificTime), :].reset_index(),
         on=dist.key,
     )
-    entitleExtract[["Dim0", "Dim1", "Dim2"]] = entitleExtract[
-        ["Dim0_R", "Dim1_R", "Dim2_R"]
+    entitleExtract[["__Dim0", "__Dim1", "__Dim2"]] = entitleExtract[
+        ["__Dim0_R", "__Dim1_R", "__Dim2_R"]
     ].astype(float)
     entitleExtract["_DateTime"] = entitleExtract["_DateTime"].astype(int)
     entitleExtract.loc[entitleExtract["Type"] == "Modified", "_DateTime"] = (
@@ -756,10 +765,7 @@ def report_1(
         for ele in distAttr
     ]
     bestFitIDs = [
-        [
-            f" - {uiddf} {id} at {create_datetime(dt)} in {ele} from {minIdAttr.index.name}"
-            for ele, (id, dt) in minIdAttr.iteritems()
-        ]
+        [[id, create_datetime(dt), minIdAttr.index.name, ele] for ele, (id, dt) in minIdAttr.iteritems()]
         for minIdAttr in minIds
     ]
     bestFitIDs = [item for sublist in bestFitIDs for item in sublist]
@@ -771,13 +777,18 @@ def report_1(
         f"{int(distDesc['min']*100)} - {int(distDesc['max']*100)}% reduction in permission distances across all elements for an median of {int(distDesc['50%']*100)}%",
         (
             f"{distInfo.T.max().idxmax()} from {dist.identities.loc[distInfo.T.max().idxmax()].loc[dist.specificTime][dist.attribute][0]}"
-            f" in attribute {distInfo.max().idxmax().replace('_Distance', '')} will improve the most"
-        ),
-        f"The identities which are the best representation of the elements are:",
-    ] + bestFitIDs
+            f" in attribute {distInfo.max().idxmax().replace('__Distance', '')} will improve the most"
+        )
+    ]
 
     for p in prioritySummary:
         addToReport(wsPriorityActions, [p], rowNo)
+
+    rowNo += 1
+    addToReport(wsPriorityActions, ["The identities which are the best representation of the elements are:"], rowNo)
+    addToReport(wsPriorityActions, [uiddf, "Permission date", "Attribute", "Element"], rowNo)
+    for p in bestFitIDs:
+        addToReport(wsPriorityActions, p, rowNo)
 
     rowNo += 1
 
@@ -829,7 +840,7 @@ def report_1(
     ).value = "Actions which would improve your permission environment but should be secondary to the Priority actions"
     wsImportantActions.cell(
         row=2, column=1
-    ).value = "The following information outlines the next 30 permissions which are causing the greatest identity discrepancy"
+    ).value = "The following information outlines up to 30 other permissions which are causing the greatest identity discrepancy"
 
     addToReport(
         wsImportantActions,
@@ -1275,42 +1286,63 @@ def save_selected_information(selectIDdf, permdf, uiddf, filePath):
     wb = Workbook()
     del wb["Sheet"]
 
-    # --------------- Identities sheet ---------------
-
-    wsIdentities = wb.create_sheet("Identities")
-    wsIdentities.cell(row=1, column=1).value = "Selected identities"
-
-    # remove duplicated entires and sort by uiddf
-    selectIDdf.drop_duplicates([uiddf, "_DateTime"], inplace=True)
-    idOrder = selectIDdf[uiddf]
-    selectIDdf.sort_values([uiddf, "_DateTime"], inplace=True)
-
-    rowNo = np.array(3)
-    addToReport(wsIdentities, selectIDdf.columns, rowNo)
-    for _, idInfo in selectIDdf.iterrows():
-        addToReport(wsIdentities, idInfo, rowNo)
+    wsIdentities = wb.create_sheet("Info attributes")
+    wsPermissions = wb.create_sheet("Permissions")
 
     # --------------- Permissions sheet ---------------
 
-    wsPermissions = wb.create_sheet("Permissions")
     wsPermissions.cell(row=1, column=1).value = "Permissiosn of the identity"
     rowNo = np.array(3)
 
-    # get the datetime of the identities in the form for the permission dataframe
-    selectdt = list(set(selectIDdf["_IdentityDateTime"]))[-1]
-    dt = [
-        dt
-        for dt in list(set(permdf.index.get_level_values(1)))
-        if create_datetime(dt) == selectdt
-    ][0]
+    # seperate the selected data between clusters and individual identities. A cluster contains 2 or more IDs
+    # add hash info
+    selectIDdf["__hashinfo"] = [
+        sha256(info.to_json().encode()).hexdigest()[:8]
+        for _, info in selectIDdf.iterrows()
+    ]
 
-    # get all the permissions of the selected identities in the order they were selected
+    selectIDdf.drop_duplicates("__hashinfo", inplace=True)
+
+    clusterRows = np.array([type(id) is list for id in selectIDdf[uiddf]])
+    clusterdf = selectIDdf[clusterRows]
+    identitydf = selectIDdf[~clusterRows]
+
+    # get all the permissions of the selected individual identities in the order they were selected
     permsID = pd.DataFrame(
         [
             permdf.loc[(id, int(dt)), :]
-            for _, (id, dt) in selectIDdf[[uiddf, "_DateTime"]].iterrows()
+            for _, (id, dt) in identitydf[[uiddf, "_DateTime"]].iterrows()
+            if type(id) is not list
         ]
     ).T
+
+    # get the %proporption permissions for the selected clusters in the order they were selected if there are any
+    if len(clusterdf) > 0:
+
+        # If there are clusters then the 2nd to last column will contain the cluster information. The last column is the newly created __hashinfo column
+        clusterdf.rename(columns={clusterdf.columns[-2]: "ClusterID"}, inplace=True)
+        selectIDdf.rename(columns={clusterdf.columns[-2]: "ClusterID"}, inplace=True)
+
+        permsIDCluster = pd.DataFrame(
+            [
+                pd.DataFrame([permdf.loc[(id, int(dt)), :] for id in ids]).mean()
+                for _, (ids, dt) in clusterdf[[uiddf, "_DateTime"]].iterrows()
+            ]
+        ).T
+
+        index = [
+            (
+                f"{info['ClusterID']} ({info['__hashinfo']})",
+                info["_DateTime"],
+            )
+            for _, info in clusterdf.iterrows()
+        ]
+        permsIDCluster.set_axis(
+            labels=pd.MultiIndex.from_tuples(index), axis=1, inplace=True
+        )
+
+        permsID = pd.concat(objs=[permsID, permsIDCluster], axis=1)
+
     permsID = permsID[np.sum(permsID, 1) > 0]
 
     # sort the permission df rows by the number of permissions (highest to lowest) then alphabetically and (NOT DOING THIS) the columns by the uiddf alphabetically (same as the selectIDdf)
@@ -1332,6 +1364,41 @@ def save_selected_information(selectIDdf, permdf, uiddf, filePath):
     )
     for perm, idInfo in permsID.iterrows():
         addToReport(wsPermissions, [perm] + list(idInfo), rowNo)
+
+    # --------------- Identities attribute info sheet ---------------
+
+    wsIdentities.cell(row=1, column=1).value = "Selected identities/cluster info"
+    # Select any attribute names which DONT start with "_"
+    selectAttr = [c for c in selectIDdf.columns if c[0] != "_"]
+
+    rowNo = np.array(3)
+    addToReport(wsIdentities, selectAttr, rowNo)
+    for _, idInfo in selectIDdf.iterrows():
+        addToReport(wsIdentities, idInfo[selectAttr], rowNo)
+
+    # --------------- Cluster identities ---------------
+
+    # create cluster identities tab
+    if len(clusterdf) > 0:
+        # NOTE this is split from the above if statement purely for readability/organisational reasons.
+        wsClusterIdentities = wb.create_sheet("Cluster identities")
+        wsClusterIdentities.cell(row=1, column=1).value = "Identities in each cluster"
+
+        colNo = np.array(1)
+        addToReport(
+            wsClusterIdentities,
+            [f"{id}: {create_datetime(dt)}" for id, dt in index],
+            np.array(3),
+        )
+        for _, idInfo in clusterdf.iterrows():
+            addToReport(
+                wsClusterIdentities,
+                sorted(idInfo[uiddf]),
+                colNo=colNo,
+                rowStart=np.array(4),
+            )
+
+    # add a new tab to the report and report on the identities in each cluser
 
     wb.save(filename=filePath)
 

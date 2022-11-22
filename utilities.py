@@ -192,20 +192,21 @@ def clusterData(df, uidAttr, attribute, sliderRoundValue, dictRules=None):
     # perform the spatial clustering and tranform the positional information
     sliderRoundValue = np.clip(sliderRoundValue, 0.001, 100)
     dfMod = df.copy()
-    dfMod[["Dim0r", "Dim1r", "Dim2r"]] = dfMod[["Dim0", "Dim1", "Dim2"]].apply(
-        lambda x: np.round(sliderRoundValue * np.round(x / sliderRoundValue), 2)
-    )
-    dfMod["_Count"] = dfMod.groupby(["Dim0r", "Dim1r", "Dim2r", attribute])[
+    dfMod[["__Dim0r", "__Dim1r", "__Dim2r"]] = dfMod[
+        ["__Dim0", "__Dim1", "__Dim2"]
+    ].apply(lambda x: np.round(sliderRoundValue * np.round(x / sliderRoundValue), 2))
+    dfMod["_Count"] = dfMod.groupby(["__Dim0r", "__Dim1r", "__Dim2r", attribute])[
         [uidAttr]
     ].transform("count")
     dfUniqID = dfMod[dfMod["_Count"] == 1]
 
     # Create the aggregation dictionary
     aggDict = {
-        "Dim0": "median",
-        "Dim1": "median",
-        "Dim2": "median",
+        "__Dim0": "median",
+        "__Dim1": "median",
+        "__Dim2": "median",
         "_Count": "median",
+        "_DateTime": "median",
     }
 
     if dictRules is not None:
@@ -213,7 +214,7 @@ def clusterData(df, uidAttr, attribute, sliderRoundValue, dictRules=None):
 
     dfCluster = (
         dfMod[dfMod["_Count"] > 1]
-        .groupby(["Dim0r", "Dim1r", "Dim2r", attribute])
+        .groupby(["__Dim0r", "__Dim1r", "__Dim2r", attribute])
         .agg(aggDict)
         .reset_index()
     )
@@ -258,14 +259,21 @@ def addToReport(ws, content, rowNo=None, colNo=None, colStart=1, rowStart=1):
     Remember this is excel not python so indexs start at 1 not 0!!!
     """
 
+    if type(content) is pd.Series:
+        content = content.to_list()
+
     if rowNo is not None:
         for n, con in enumerate(content, colStart):
-            ws.cell(row=int(rowNo), column=n).value = con
+            ws.cell(row=int(rowNo), column=n).value = (
+                "Mixed, run a cluster report for details" if type(con) is list else con
+            )
         rowNo += 1
 
     elif colNo is not None:
         for n, con in enumerate(content, rowStart):
-            ws.cell(row=n, column=int(colNo)).value = con
+            ws.cell(row=n, column=int(colNo)).value = (
+                "Mixed, run a cluster report for details" if type(con) is list else con
+            )
         colNo += 1
 
 

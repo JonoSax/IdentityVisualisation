@@ -40,7 +40,7 @@ def pageone_layout(
                                         [
                                             daq.ToggleSwitch(
                                                 id="toggle-timeseries",
-                                                disabled=not "_PermissionDateTime"
+                                                disabled=not "Permission Datetime"
                                                 in dfID.columns,
                                                 value=False,
                                             ),
@@ -184,6 +184,9 @@ def pageone_layout(
                                     "margin-top": "15px",
                                 },
                             ),
+                            html.Div(
+                                id="report_2_sub",
+                            ),
                             # report2/clustering slider
                             dcc.Slider(
                                 0,
@@ -194,17 +197,17 @@ def pageone_layout(
                                 marks=None,
                                 vertical=False,
                             ),
-                            html.Div(
-                                id="report_2_sub",
-                            ),
                             # report3 button
                             html.Button(
                                 "BETA Identity changes report",
                                 id="report_3",
                                 n_clicks=0,
                                 style={
-                                    "margin-top": "15px",
+                                    # "margin-top": "15px",
                                 },
+                            ),
+                            html.Div(
+                                id="report_3_sub",
                             ),
                             # report3/time slider
                             dcc.Slider(
@@ -224,9 +227,6 @@ def pageone_layout(
                                 id="slider-meshtime",
                                 disabled=False,
                                 vertical=False,
-                            ),
-                            html.Div(
-                                id="report_3_sub",
                             ),
                             # report4 button
                             html.Button(
@@ -269,7 +269,7 @@ def pageone_layout(
                         # dttimes.min(), dttimes.max(),
                         # value = dttimes.max(),
                         id="slider-dates",
-                        disabled=not "_PermissionDateTime" in hover_data,
+                        disabled=not "Permission Datetime" in hover_data,
                         marks=marks,
                     ),
                     # html.Div(id='slider-output'),
@@ -332,6 +332,7 @@ def pageone_layout(
                             }
                             for a in hover_data
                         ],
+                        data=[],
                         # data=[{a: "" for a in hover_data}],
                         editable=True,
                         row_deletable=True,
@@ -363,6 +364,7 @@ def pageone_layout(
             dcc.Store(data=hover_data, id="hover_data"),
             dcc.Store(data=os.getpid(), id="pid"),
             dcc.Store(data="info", id="info"),
+            dcc.Store(data=[], id="table_info"),
             dcc.Store(
                 data=None, id="identitiesPlotted"
             ),  # store the plotted identity data
