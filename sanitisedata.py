@@ -1,6 +1,7 @@
-import pandas as pd
-import os
 import hashlib
+import os
+
+import pandas as pd
 
 
 def cleandata(file, dest, joiningKey):
@@ -11,8 +12,6 @@ def cleandata(file, dest, joiningKey):
     """
 
     fileName = os.path.basename(file)
-
-    m = hashlib.sha256()
 
     data = pd.read_csv(file, dtype=str, on_bad_lines="skip")
 
