@@ -40,10 +40,12 @@ class Metrics:
         specificTime=None,
         sliderRound=None,
         sliderCluster=None,
+        errorTol=1,
     ):
 
         self.key = uiddf
         self.attribute = attribute
+        self.errorTol = errorTol
         self.plottedIdentities = self.setIDdf(plottedIdentities)
         self.permissions = self.setPermdf(permissions)
         self.specificTime = self.getTime(self.plottedIdentities, specificTime)
@@ -233,30 +235,34 @@ class Metrics:
 
         attrDist = [d for d in self.dfDistances.columns if "__Distance" in d]
 
-        allAttrDesc = self.dfDistances[attrDist].describe()
-        outlierdf = None
+        outlierdf = []
         for attr in attrDist:
             outType = attr.split("__Distance")[-1]
 
-            groupAttrDesc = self.dfDistances.groupby("Department")[attr].describe()
+            groupAttrDesc = self.dfDistances.groupby(outType)[attr].describe()
 
             for ele in groupAttrDesc.index:
-                std = groupAttrDesc.loc[ele]["std"]
-                mean = groupAttrDesc.loc[ele]["mean"]
-                q3 = groupAttrDesc.loc[ele]["75%"]
-                iqr = q3 - groupAttrDesc.loc[ele]["25%"]
+                # std = groupAttrDesc.loc[ele]["std"]
+                # mean = groupAttrDesc.loc[ele]["mean"]
+
+                # if there are less than 5 identities (arbituary number) then don't include them in outlier calculations because the statistics will be meaningless
+                if groupAttrDesc.loc[ele]["count"] < 5:
+                    continue
+
+                q1, q3 = groupAttrDesc.loc[ele][["25%", "75%"]]
+                iqr = q3 - q1
 
                 # 3 standard deviations from the mean of distances
                 # outliers = self.dfDistances[self.dfDistances[attr] > (mean + std*3)]
 
                 # 1.5 x iqr beyond the q3
                 outliers = self.dfDistances[
-                    (self.dfDistances[attr] > (iqr * 1.5 + q3))
+                    (self.dfDistances[attr] > (iqr * 1.5 * self.errorTol + q3))
                     & (self.dfDistances[outType] == ele)
                 ]
 
                 outliers["type"] = outType
-                if outlierdf is None:
+                if type(outlierdf) is not pd.DataFrame:
                     outlierdf = outliers
                 else:
                     outlierdf = pd.concat([outlierdf, outliers])
@@ -390,7 +396,14 @@ class Metrics:
 
 
 def report_1(
-    plotIDdf, permissions, privData, uiddf, sliderDate, reportName, attribute=None
+    plotIDdf,
+    permissions,
+    privData,
+    uiddf,
+    sliderDate,
+    reportName,
+    attribute=None,
+    errorTol=1,
 ):
 
     """
@@ -415,7 +428,9 @@ def report_1(
 
     # ----------- Get base information from the data ----------
 
-    dist = Metrics(plotIDdf, permissions, uiddf, specificTime=sliderDate)
+    dist = Metrics(
+        plotIDdf, permissions, uiddf, specificTime=sliderDate, errorTol=errorTol
+    )
     dist.calculateDistances(
         attr=attribute, specificTime=dist.specificTime, sumType="net"
     )
@@ -638,7 +653,11 @@ def report_1(
     # For up to 10 permissions (max of 7 to either add or remove), investigate the permissions to
     # prioritise actions for
     n = 0
-    while removeC + addC < 10 and len(priorityPermissions) > 0:
+    while (
+        removeC + addC < 10
+        and len(priorityPermissions) > 0
+        and n < len(priorityPermissions)
+    ):
         pi = priorityPermissions[n]
         if pi in privData.index:
             pi = f"{pi} **Privilege level {int(privData.loc[pi])}"
@@ -765,7 +784,10 @@ def report_1(
         for ele in distAttr
     ]
     bestFitIDs = [
-        [[id, create_datetime(dt), minIdAttr.index.name, ele] for ele, (id, dt) in minIdAttr.iteritems()]
+        [
+            [id, create_datetime(dt), minIdAttr.index.name, ele]
+            for ele, (id, dt) in minIdAttr.iteritems()
+        ]
         for minIdAttr in minIds
     ]
     bestFitIDs = [item for sublist in bestFitIDs for item in sublist]
@@ -778,15 +800,21 @@ def report_1(
         (
             f"{distInfo.T.max().idxmax()} from {dist.identities.loc[distInfo.T.max().idxmax()].loc[dist.specificTime][dist.attribute][0]}"
             f" in attribute {distInfo.max().idxmax().replace('__Distance', '')} will improve the most"
-        )
+        ),
     ]
 
     for p in prioritySummary:
         addToReport(wsPriorityActions, [p], rowNo)
 
     rowNo += 1
-    addToReport(wsPriorityActions, ["The identities which are the best representation of the elements are:"], rowNo)
-    addToReport(wsPriorityActions, [uiddf, "Permission date", "Attribute", "Element"], rowNo)
+    addToReport(
+        wsPriorityActions,
+        ["The identities which are the best representation of the elements are:"],
+        rowNo,
+    )
+    addToReport(
+        wsPriorityActions, [uiddf, "Permission date", "Attribute", "Element"], rowNo
+    )
     for p in bestFitIDs:
         addToReport(wsPriorityActions, p, rowNo)
 

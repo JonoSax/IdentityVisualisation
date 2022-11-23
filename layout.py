@@ -174,6 +174,24 @@ def pageone_layout(
                             html.Div(
                                 id="report_1_sub",
                             ),
+                            # report1/outlier tolerance
+                            dcc.Slider(
+                                0,  # No tolerance, any identity not at the median is an outlier
+                                2,  # double the tolerance
+                                0.5,  # 5 degrees of outlier tolerance
+                                value=1,  # standard tolerance
+                                id="slider-outliertolerance",
+                                disabled=False,
+                                vertical=False,
+                                marks={
+                                    0: "Strict",
+                                    0.5: "Mild",
+                                    1: "Standard",
+                                    1.5: "Loose",
+                                    2: "Very loose",
+                                },
+                                included=False
+                            ),
                             # report2 button
                             html.Button(
                                 "Cluster report",

@@ -497,8 +497,10 @@ def save_plot(click, fig, info, selectedAttr):
     State("uidAttr", "data"),
     State("slider-dates", "value"),
     State("selectedDropDown", "value"),
+    State("slider-outliertolerance", "value"),
+
 )
-def report_1(click, idPlotted, uid, sliderDate, selectedAttr):
+def report_1(click, idPlotted, uid, sliderDate, selectedAttr, errorTol):
 
     """
     Create a report which identifies which identities are "outliers" relative to their peers in their respective element. It models all identities as seen when the slider-rounding value = 0.
@@ -521,6 +523,7 @@ def report_1(click, idPlotted, uid, sliderDate, selectedAttr):
             sliderDate,
             "OutlierReport",
             selectedAttr,
+            errorTol
         )
 
     else:
