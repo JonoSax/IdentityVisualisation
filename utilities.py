@@ -151,7 +151,7 @@ def mdsCalculation(
     elif method == "isomap":
 
         isomap = manifold.Isomap(
-            n_neighbors=50,  # 10 if len(dissimilarity) > 10 else len(dissimilarity) - 1,
+            n_neighbors= 50 if len(dissimilarity) > 50 else len(dissimilarity) - 1,
             n_components=3,
             max_iter=max_iter,
         )
