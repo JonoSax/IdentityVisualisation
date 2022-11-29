@@ -25,6 +25,7 @@ def track_elements(
     hover_data: list,
     mesh_time_slider: int,
     colourDict: dict,
+    errorTol: float,
 ):
 
     """
@@ -47,6 +48,9 @@ def track_elements(
 
     mesh_time_slider: int
         The value of the slider-meshtime object to select/turn off the mesh viewing
+
+    errorTol : float
+        Error tolerance value
     """
 
     print(f"     Tracking historical data with 3D plotting for {attribute}")
@@ -81,13 +85,13 @@ def track_elements(
     ).sort_values()
     idMovement = np.round(dfIDInclSort.groupby([uidAttr, attribute])["diff"].sum(), 2)
     idsOutlier = []
-    for attr in elements:
-        idMoveAttr = idMovement.loc[slice(None), attr]
-        idMoveDesc = idMoveAttr.describe()
-        q3 = idMoveDesc.loc["75%"]
-        iqr = q3 - idMoveDesc.loc["25%"]
-        rng = iqr * 1.5 + q3
-        idsOutlier += list(idMoveAttr[idMoveAttr > rng].index)
+    for ele in elements:
+        idMoveEle = idMovement.loc[slice(None), ele]
+        idMoveDesc = idMoveEle.describe()
+        q1, q3 = idMoveDesc[["25%", "75%"]]
+        iqr = q3 - q1
+        rng = iqr * 1.5 * errorTol + q3
+        idsOutlier += list(idMoveEle[idMoveEle > rng].index)
 
     # Calculate the aggregate statistics for the attribute plotting
     dfTrack = (

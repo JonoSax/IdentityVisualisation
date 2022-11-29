@@ -142,6 +142,7 @@ def createInteractivePlot(app: Dash, dataModel: object):
     Input("slider-rounding", "value"),
     Input("slider-clustering", "value"),
     Input("slider-meshtime", "value"),
+    State("slider-outliertolerance", "value"),
 )
 def update_graph(
     figLayout,
@@ -161,6 +162,7 @@ def update_graph(
     sliderRoundValue,
     sliderClusterValue,
     sliderMeshTimeValue,
+    sliderErrortolValue,
 ):
 
     """
@@ -207,20 +209,21 @@ def update_graph(
     # ---------- Track attributes across the time inputs ----------
     if trackingToggle:
 
-        fig, plotTitle, dfPlotIncl, dfPlotExcl = track_elements_dashboard(
+        fig, plotTitle, dfPlotIncl, dfPlotExcl = track_elements(
             dfIDIncl,
             dfIDExcl,
             uidAttr,
             attribute,
             hover_data,
             sliderMeshTimeValue,
-            colour_dict,
+            colour_dict[attribute],
+            sliderErrortolValue,
         )
 
     #  ---------- Cluster data around reduced spatial resolution ----------
     elif sliderRoundValue >= 0:
 
-        fig, plotTitle, dfPlotIncl, dfPlotExcl = cluster_identities_dashboard(
+        fig, plotTitle, dfPlotIncl, dfPlotExcl = cluster_identities(
             dfIDIncl,
             dfIDExcl,
             uidAttr,
@@ -229,35 +232,34 @@ def update_graph(
             sliderDateValue,
             sliderRoundValue,
             sliderClusterValue,
-            colour_dict,
+            colour_dict[attribute],
         )
 
     # ---------- Plot the raw identity data ----------
     else:
 
-        fig, plotTitle, dfPlotIncl, dfPlotExcl = plot_identities_dashboard(
+        fig, plotTitle, dfPlotIncl, dfPlotExcl = plot_identities(
             dfIDIncl,
             dfIDExcl,
             uidAttr,
             attribute,
             hover_data,
             sliderDateValue,
-            colour_dict,
+            colour_dict[attribute],
         )
 
     # ---------- Plot the role data ----------
     if rolesurfaceToggle:
 
-        fig = plot_roles_dashboard(
+        fig = plot_roles(
             fig,
-            dfIDIncl,
-            dfIDExcl,
+            dfPlotIncl,
+            dfPlotExcl,
             dfRole,
             uidAttr,
             roleAttr,
-            rolesurfaceToggle,
-            trackingToggle,
-            colour_dict,
+            rolesurfaceToggle and not trackingToggle,  # link roles only if not tracking
+            colour_dict[roleAttr],
         )
 
     if len(identitiesFind) > 0:
@@ -371,96 +373,6 @@ def update_graph(
 
 
 """
-Create dashboard specific functions for each of the plotting functions to allow for cache.memoize
-
-----------------------------------------------------------------------------
-"""
-
-
-# @cache.memoize()
-def track_elements_dashboard(
-    dfIDIncl, dfIDExcl, uidAttr, attribute, hover_data, mesh_time_slider, colour_dict
-):
-
-    return track_elements(
-        dfIDIncl,
-        dfIDExcl,
-        uidAttr,
-        attribute,
-        hover_data,
-        mesh_time_slider,
-        colour_dict[attribute],
-    )
-
-
-# @cache.memoize()
-def cluster_identities_dashboard(
-    dfIDIncl,
-    dfIDExcl,
-    uidAttr,
-    attribute,
-    hover_data,
-    sliderDateValue,
-    sliderRoundValue,
-    sliderClusterValue,
-    colour_dict,
-):
-
-    return cluster_identities(
-        dfIDIncl,
-        dfIDExcl,
-        uidAttr,
-        attribute,
-        hover_data,
-        sliderDateValue,
-        sliderRoundValue,
-        sliderClusterValue,
-        colour_dict[attribute],
-    )
-
-
-# @cache.memoize()
-def plot_identities_dashboard(
-    dfIDIncl, dfIDExcl, uidAttr, attribute, hover_data, sliderDateValue, colour_dict
-):
-
-    return plot_identities(
-        dfIDIncl,
-        dfIDExcl,
-        uidAttr,
-        attribute,
-        hover_data,
-        sliderDateValue,
-        colour_dict[attribute],
-    )
-
-
-# @cache.memoize()
-def plot_roles_dashboard(
-    fig,
-    dfPlotIncl,
-    dfPlotExcl,
-    dfRole,
-    uidAttr,
-    roleAttr,
-    rolesurfaceToggle,
-    trackingToggle,  # link roles only if not tracking
-    colour_dict,
-):
-
-    return plot_roles(
-        fig,
-        dfPlotIncl,
-        dfPlotExcl,
-        dfRole,
-        uidAttr,
-        roleAttr,
-        rolesurfaceToggle and not trackingToggle,  # link roles only if not tracking
-        colour_dict[roleAttr],
-    )
-
-
-"""
 ----------------------------------------------------------------------------
 """
 
@@ -498,7 +410,6 @@ def save_plot(click, fig, info, selectedAttr):
     State("slider-dates", "value"),
     State("selectedDropDown", "value"),
     State("slider-outliertolerance", "value"),
-
 )
 def report_1(click, idPlotted, uid, sliderDate, selectedAttr, errorTol):
 
@@ -523,7 +434,7 @@ def report_1(click, idPlotted, uid, sliderDate, selectedAttr, errorTol):
             sliderDate,
             "OutlierReport",
             selectedAttr,
-            errorTol
+            errorTol,
         )
 
     else:
