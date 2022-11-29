@@ -13,21 +13,29 @@ TODO
 
 # Theme stuff: https://dash.plotly.com/external-resources
 
+# Running on azure app services: https://learn.microsoft.com/en-us/azure/app-service/configure-language-python#flask-app
+# https://resonance-analytics.com/blog/deploying-dash-apps-on-azure
 
+
+"""
 def launchApp(dataModel):
 
-    app = Dash(__name__)  # , external_stylesheets=external_stylesheets)
-
-    appObj = createInteractivePlot(app, dataModel)
+    dash_app = Dash(__name__)  # , external_stylesheets=external_stylesheets)
+    app = dash_app.server
+    dash_app = createInteractivePlot(dash_app, dataModel)
     # webbrowser.open("http://127.0.0.1:8050/", new = 0, autoraise = True)
     try:
-        appObj.run_server(debug=True, port=8050)
+        dash_app.run_server(debug=True)
     except Exception as e:
         print(e)
-        launchApp(appObj)
+"""
+
+dataModel = CsvData(False)
+dash_app = Dash(__name__)  # , external_stylesheets=external_stylesheets)
+app = dash_app.server
+dash_app = createInteractivePlot(dash_app, dataModel)
 
 
 if __name__ == "__main__":
 
-    csvData = CsvData(False)
-    launchApp(csvData)
+    dash_app.run_server(debug=True)
