@@ -86,15 +86,6 @@ class DataModel(object):
         if not os.path.exists(self.dir["data"]):
             os.mkdir(self.dir["results"])
 
-    def plotMDS(self):
-
-        """
-        Take the data information and report the information in the dashboard
-        """
-
-        # launchApp(self)
-        pass
-
     def processType(self, processName: str):
 
         """
@@ -251,13 +242,7 @@ class DataModel(object):
         self.processManager()
         self.hashData()
 
-        # attribute data requires the category information as well
-        if "Attr" in self.processingType:
-            joinedCategoryHeaders = "_".join(sorted(self.categoriesHeader))
-            csvName = f"{self.processingType}{dims}D_{joinedCategoryHeaders}"
-        # identity data requires the processing type and dimensionality
-        else:
-            csvName = f"{self.processingType}{dims}D_{self.hashValue}"
+        csvName = f"{self.processingType}{dims}D_{self.hashValue}"
 
         # find any relevant files
         csvFiles = sorted(glob(f"{self.dir['results']}{csvName}*.csv"))
@@ -294,7 +279,7 @@ class DataModel(object):
         print(f"     Fitting complete")
 
         # get n-dimension labels
-        dimNames = [f"Dim{n}" for n in range(len(pos[0]))]
+        dimNames = [f"__Dim{n}" for n in range(len(pos[0]))]
 
         entitleExtract = pd.DataFrame(
             np.hstack([pos, self.categories]),
