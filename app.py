@@ -31,11 +31,11 @@ def launchApp(dataModel):
 """
 
 dataModel = CsvData(False)
-app = Dash(__name__)  # , external_stylesheets=external_stylesheets)
-# app = dash_app.server
-app = createInteractivePlot(app, dataModel)
+dash_app = Dash(__name__)  # , external_stylesheets=external_stylesheets)
+app = dash_app.server
+dash_app = createInteractivePlot(dash_app, dataModel)
 
 
 if __name__ == "__main__":
 
-    app.run_server(debug=True)
+    dash_app.run_server(debug=True)
