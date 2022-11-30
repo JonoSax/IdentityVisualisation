@@ -974,7 +974,7 @@ def report_1(
     # create the report as an excel and save in the downloads
     timeInfo = strftime("%Y-%m-%d_%H.%M.%S", localtime())
     name = f"{reportName}_{timeInfo}"
-    reportPath = f"{os.path.expanduser('~')}\\Downloads\\{name}.xlsx"
+    reportPath = f"{os.path.expanduser('~')}/Downloads/{name}.xlsx"
     print(f"----- {reportPath} created -----")
     wb.save(filename=reportPath)
 
@@ -1195,7 +1195,7 @@ def report_2(
 
     timeInfo = strftime("%Y-%m-%d_%H.%M.%S", localtime())
     name = f"{reportName}_{timeInfo}"
-    reportPath = f"{os.path.expanduser('~')}\\Downloads\\{name}.xlsx"
+    reportPath = f"{os.path.expanduser('~')}/Downloads/{name}.xlsx"
     wb.save(filename=reportPath)
 
     output = f"{name} saved"
@@ -1504,7 +1504,7 @@ def add_random_changes(df: pd.DataFrame, num=100, cols=None):
 if __name__ == "__main__":
 
     df = pd.read_csv(
-        "C:\\Users\\jreshef\\Documents\\Projects\\PermissionAnalysis\\results\\Identity3D_1659964744.csv",
+        "C:/Users/jreshef/Documents/Projects/PermissionAnalysis/results/Identity3D_1659964744.csv",
         dtype=str,
     )
 

@@ -33,7 +33,7 @@ if __name__ == "__main__":
 
     files = ["dataairnz\Identities_EM.csv", "dataairnz\Permissions_EM.csv"]
     keys = ["Username", "Identity"]
-    dest = "data\\"
+    dest = "data/"
 
     for f, k in zip(files, keys):
         cleandata(f, dest, k)

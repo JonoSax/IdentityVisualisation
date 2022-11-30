@@ -479,33 +479,33 @@ def excelData(
 
 def CsvData(forceRecalculate=False):
 
-    identityPath = "data\\RBACImplementationTest\\IdentitiesFake_*.csv"
-    permissionPath = "data\\EntitlementsFakeAll_*.csv"
-    permissionPath = "data\\RBACImplementationTest\\EntitlementsFake50_*.csv"
+    identityPath = "data/RBACImplementationTest/IdentitiesFake_*.csv"
+    permissionPath = "data/EntitlementsFakeAll_*.csv"
+    permissionPath = "data/RBACImplementationTest/EntitlementsFake50_*.csv"
     limitData = 7
 
-    identityPath = "data\\IdentityPermissionCreepTest\\IdentitiesFake_*.csv"
-    permissionPath = "data\\IdentityPermissionCreepTest\\Full\\EntitlementsFake_*.csv"
-    limitData = 4
+    identityPath = "data/IdentityPermissionCreepTest/IdentitiesFake_*.csv"
     permissionPath = (
-        "data\\IdentityPermissionCreepTest\\Small\\EntitlementsFake50_*.csv"
+        "data/IdentityPermissionCreepTest/Small/EntitlementsFake50_*.csv"
     )
     limitData = 7
+    permissionPath = "data/IdentityPermissionCreepTest/Full/EntitlementsFake_*.csv"
+    limitData = 2
 
-    privilegedPath = "data\\PrivliegedData.csv"
+    privilegedPath = "data/PrivliegedData.csv"
     privilegedPath = None
 
+    rolePath = "data/RoleData.csv"
     rolePath = None
-    rolePath = "data\\RoleData.csv"
 
+    privilegedPath = "fakedata/PrivliegedData.csv"
     privilegedPath = None
-    privilegedPath = "fakedata\\PrivliegedData.csv"
 
-    rolePath = "fakedata\\RoleData.csv"
+    rolePath = "fakedata/RoleData.csv"
     rolePath = None
 
-    permissionPath = "data\\Permissions*.csv"
-    identityPath = "data\\Identities*.csv"
+    permissionPathn = "data/Permissions*.csv"
+    identityPathn = "data/Identities*.csv"
 
     csvData = CSVData()
 
@@ -538,7 +538,7 @@ if __name__ == "__main__":
             str(workbook), str(worksheet), int(dims), str(identityID), str(permissionID)
         )
     else:
-        workbook = "C:\\Users\\ResheJ\\Downloads\\WorkBook-Hashedv1.xlsm"
+        workbook = "C:/Users/ResheJ/Downloads/WorkBook-Hashedv1.xlsm"
         workbook = "WorkBook-FakeData.xlsm"
         worksheet = "SimilarityScoreIdentities"
         dims = 3

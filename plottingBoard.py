@@ -392,7 +392,7 @@ def save_plot(click, fig, info, selectedAttr):
 
         dims = sum([l.find("axis") > 0 for l in list(fig["layout"]["scene"])])
         selectedAttr = selectedAttr.split(":")[0]
-        plotName = f'{os.path.expanduser("~")}\\Downloads\\{info}_{dims}D_{selectedAttr}_{datetime.now().strftime("%y%m%d.%H%M")}.html'
+        plotName = f'{os.path.expanduser("~")}/Downloads/{info}_{dims}D_{selectedAttr}_{datetime.now().strftime("%y%m%d.%H%M")}.html'
         go.Figure(fig).write_html(plotName)
 
         print(f"     Plot saved at {plotName}\n")
@@ -664,7 +664,7 @@ def save_file(click, table_info, filename, hover_data, uiddf):
 
     else:
 
-        filePath = f"{os.path.expanduser('~')}\\Downloads\\{filename}.xlsx"
+        filePath = f"{os.path.expanduser('~')}/Downloads/{filename}.xlsx"
         # if the file is being saved then load and process the info
         if not os.path.exists(filePath):
 

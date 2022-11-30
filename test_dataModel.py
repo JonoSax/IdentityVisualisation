@@ -23,10 +23,10 @@ class TestDataModel(unittest.TestCase):
         Identiy in identity, permission, privileged and role data. The CSVData object serves as the baseline for all processing. As the methods in DataModel change they should ALWAYS be able to process the CSV data which serves as the most "naive" format
         """
         cls.DataModel = CSVData.getData(
-            identityPath="data\\unittestdata\\Identities*.csv",
-            permissionPath="data\\unittestdata\\Permissions*.csv",
-            privilegedPath="data\\unittestdata\\PrivilegedData*.csv",
-            rolePath="data\\unittestdata\\RoleData*.csv",
+            identityPath="data/unittestdata/Identities*.csv",
+            permissionPath="data/unittestdata/Permissions*.csv",
+            privilegedPath="data/unittestdata/PrivilegedData*.csv",
+            rolePath="data/unittestdata/RoleData*.csv",
             identityKey="Username",
             permissionKey="Identity",
             permissionValue="Value",
