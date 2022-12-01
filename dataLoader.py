@@ -495,17 +495,17 @@ def CsvData(forceRecalculate=False):
     privilegedPath = "data\\PrivliegedData.csv"
     privilegedPath = None
 
-    rolePath = None
     rolePath = "data\\RoleData.csv"
+    rolePath = None
 
-    privilegedPath = None
     privilegedPath = "fakedata\\PrivliegedData.csv"
+    privilegedPath = None
 
     rolePath = "fakedata\\RoleData.csv"
     rolePath = None
 
-    permissionPath = "data\\Permissions*.csv"
-    identityPath = "data\\Identities*.csv"
+    permissionPathn = "data\\Permissions*.csv"
+    identityPathn = "data\\Identities*.csv"
 
     csvData = CSVData()
 
