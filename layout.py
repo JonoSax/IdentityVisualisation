@@ -95,19 +95,15 @@ def pageone_layout(
                     html.Div(
                         [
                             # html.Label("Clustering"),
-                            html.Div(
-                                [
-                                    dcc.Slider(
-                                        -0.5,
-                                        sliderValue,
-                                        step=0.5,
-                                        value=-0.5,
-                                        id="slider-rounding",
-                                        disabled=False,
-                                        marks=None,
-                                        vertical=True,
-                                    ),
-                                ]
+                            dcc.Slider(
+                                -0.5,
+                                sliderValue,
+                                step=0.5,
+                                value=-0.5,
+                                id="slider-rounding",
+                                disabled=False,
+                                marks=None,
+                                vertical=True,
                             ),
                             # html.Div(id='slider-output'),
                         ],
@@ -190,7 +186,7 @@ def pageone_layout(
                                     1.5: "Loose",
                                     2: "Very loose",
                                 },
-                                included=False
+                                included=False,
                             ),
                             # report2 button
                             html.Button(
