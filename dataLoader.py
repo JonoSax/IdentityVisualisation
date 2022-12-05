@@ -485,10 +485,10 @@ def CsvData(forceRecalculate=False):
     limitData = 7
 
     identityPath = "data/IdentityPermissionCreepTest/IdentitiesFake_*.csv"
-    permissionPath = "data/IdentityPermissionCreepTest/Full/EntitlementsFake_*.csv"
-    limitData = 2
     permissionPath = "data/IdentityPermissionCreepTest/Small/EntitlementsFake50_*.csv"
     limitData = 7
+    permissionPath = "data/IdentityPermissionCreepTest/Full/EntitlementsFake_*.csv"
+    limitData = 4
 
     privilegedPath = "data/PrivliegedData.csv"
     privilegedPath = None
