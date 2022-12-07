@@ -77,14 +77,21 @@ class DataModel(object):
         self.mdsSavedResults = None
 
         self.dir = {}
-        self.dir["wd"] = f"{os.getcwd()}\\"
-        self.dir["results"] = f"{self.dir['wd']}results\\"
-        self.dir["data"] = f"{self.dir['wd']}data\\"
+        self.dir["wd"] = f"{os.getcwd()}/"
+        self.dir["results"] = f"{self.dir['wd']}results/"
+        self.dir["data"] = f"{self.dir['wd']}data/"
 
-        if not os.path.exists(self.dir["results"]):
-            os.mkdir(self.dir["results"])
-        if not os.path.exists(self.dir["data"]):
-            os.mkdir(self.dir["results"])
+        try:
+            if not os.path.exists(self.dir["results"]):
+                os.mkdir(self.dir["results"])
+        except Exception as e:
+            print(e)
+
+        try:
+            if not os.path.exists(self.dir["data"]):
+                os.mkdir(self.dir["results"])
+        except Exception as e:
+            print(e)
 
     def processType(self, processName: str):
 

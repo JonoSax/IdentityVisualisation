@@ -3,11 +3,11 @@ from time import time
 
 import numpy as np
 import pandas as pd
-from openpyxl import Workbook
 from plotly.colors import hex_to_rgb
 from plotly.colors import qualitative as colours
 from scipy.sparse import lil_matrix
 from sklearn import manifold
+from sklearn.cluster import DBSCAN
 
 # from numba import jit
 
@@ -91,7 +91,7 @@ def mdsCalculation(
     Use float32 as once again it balances performance and accuracy. 
     NOTE that for very large arrays (1000x1000+), using int or float16 often don't complete in a
     reasonable time. 
-    See https://discourse.julialang.org/t/massive-performance-penalty-for-float16-compared-to-float32/6864/12 
+    See https://discourse.julialang.org/t/massive-performance-penalty-for-float16-compared-to-float32/6864/4
     for a reasonably sensible explanation. 
 
     For a 500x500 array calcuation of np.dot(n, n.T)/np.sum(n, 1)
@@ -106,7 +106,7 @@ def mdsCalculation(
 
     For a 5000x5000 array calculation:
     int8 = ~75 seconds (didn't continue, took too long)
-    int16 - 64, based on the int8 time didn't attempt
+    int16 - int64, based on the int8 time didn't attempt
     f16 = didn't complete a single iteration within 5 minutes
     f32 = 0.5625820875167846
     f64 = 1.3568515539169312
@@ -162,7 +162,7 @@ def mdsCalculation(
     return pos
 
 
-def clusterData(df, uidAttr, attribute, sliderRoundValue, dictRules=None):
+def cluster_elements(df, uidAttr, attribute, sliderRoundValue, dictRules=None):
 
     """
 
@@ -235,14 +235,14 @@ def clusterData(df, uidAttr, attribute, sliderRoundValue, dictRules=None):
             c = "0" + str(c)
         cStore.append(f"Cluster {c}")
 
-    dfPos["_ClusterID"] = cStore
+    dfPos["ClusterID"] = cStore
     dfPos["_Count"] = dfPos["_Count"].astype(int)
 
     # if the aggregation rule does not create data (ie it is just a simple string) then replace the uid value with the clusterID
     # NOTE I think this can actaully be done by the aggregation rule...
     if np.all([type(d) == str for d in dfPos.loc[dfPos["_Count"] > 1, uidAttr]]):
         dfPos.loc[dfPos["_Count"] > 1, uidAttr] = dfPos.loc[
-            dfPos["_Count"] > 1, "_ClusterID"
+            dfPos["_Count"] > 1, "ClusterID"
         ]
 
     return dfPos
@@ -390,3 +390,41 @@ def create_colour_dict(
         colour_dict[str(c)] = colFunc(n_c)
 
     return colour_dict
+
+
+def outlier_calculation(df, tol=1, method="std"):
+
+    """
+    Return the threshold hold value to detect outliers based on a pandas.series
+
+    Methods are either 3 standard deviations from the mean (std) or 1.5 times the 3rd quartiel above the iqr (iqr)
+
+    Error tol enables flexibility in the range returned from a value of 0 (very strict) to 2 (ver loose) where 1 is the standard error calculations
+    """
+
+    dfD = df.describe()
+    if method == "iqr":
+        q1, q3 = dfD[["25%", "75%"]]
+        iqr = q3 - q1
+        rng = iqr * 1.5 * tol + q3
+    else:
+        mean, std = dfD[["mean", "std"]]
+        rng = mean + std * 3 * tol
+
+    return rng
+
+
+def cluster_identities(df):
+
+    """
+    Perform clustering of the identities irrespective of the attributes assigned.
+
+    Uses DBSCAN method
+    """
+
+    df["_clusterid"] = DBSCAN().fit(df[["__Dim0", "__Dim1", "__Dim2"]]).labels_
+    dfg = df.groupby("_clusterid")
+    df[["__Dim0r", "__Dim1r", "__Dim2r"]] = dfg[
+        ["__Dim0", "__Dim1", "__Dim2"]
+    ].transform("median")
+    df["_Count"] = dfg["_clusterid"].transform("count")

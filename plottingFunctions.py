@@ -87,10 +87,7 @@ def track_elements(
     idsOutlier = []
     for ele in elements:
         idMoveEle = idMovement.loc[slice(None), ele]
-        idMoveDesc = idMoveEle.describe()
-        q1, q3 = idMoveDesc[["25%", "75%"]]
-        iqr = q3 - q1
-        rng = iqr * 1.5 * errorTol + q3
+        rng = outlier_calculation(idMoveEle, errorTol)
         idsOutlier += list(idMoveEle[idMoveEle > rng].index)
 
     # Calculate the aggregate statistics for the attribute plotting
@@ -175,7 +172,9 @@ def track_elements(
 
         fig = mesh_layers(fig, uidVolDf, colourDict, ele)
 
-    # plot the tracking for outlier identities
+    """
+    Plot the tracking for outlier identities
+    """
     for id in idsOutlier:
 
         eletrdf = dfIDInclSort[dfIDInclSort[uidAttr] == id]
@@ -220,6 +219,7 @@ def track_elements(
                 # legendgroup=list(set(eletrdf[uidAttr]))[0]  # use the uid as a legend group for the plotting
                 # connectgaps=True        # NOTE for some reason this isn't acutally connecting gaps.... maybe wrong data type for empty? '
                 hoverlabel=dict(namelength=0),
+                visible='legendonly',  # by default hide this but allow for it to be selected on the legend
             )
         )
 
@@ -320,7 +320,9 @@ def cluster_identities(
     }
 
     # get the clustered data
-    dfPosIncl = clusterData(dfModIncl, uidAttr, attribute, sliderRoundValue, aggDict)
+    dfPosIncl = cluster_elements(
+        dfModIncl, uidAttr, attribute, sliderRoundValue, aggDict
+    )
 
     if len(dfIDExcl) > 0 and False:
 
@@ -331,7 +333,7 @@ def cluster_identities(
         ].reset_index(drop=True)
 
         # create a dictionary to colour the traces depending on the attribute and time of the data
-        dfPosExcl = clusterData(
+        dfPosExcl = cluster_elements(
             dfModExcl, uidAttr, attribute, sliderRoundValue, aggDict
         )
 
@@ -358,12 +360,8 @@ def cluster_identities(
 
     # ------
     fig = go.Figure()
-    dfPosIncl.rename(
-        columns={"_Count": "Count", "_ClusterID": "ClusterID"}, inplace=True
-    )
-    dfPosExcl.rename(
-        columns={"_Count": "Count", "_ClusterID": "ClusterID"}, inplace=True
-    )
+    dfPosIncl.rename(columns={"_Count": "Count"}, inplace=True)
+    dfPosExcl.rename(columns={"_Count": "Count"}, inplace=True)
 
     # the clusters to include
     for ele in sorted(dfPosIncl[attribute].unique()):
@@ -578,6 +576,30 @@ def plot_roles(
 
     """
     Plot the volume of the roles to visualise the overlap of role identities
+
+    fig : plotly.go
+        Plotly figure to update
+
+    dfIDIncl : pd.DataFrame
+        dataframe of the identities to include
+
+    dfIDExcl : pd.DataFrame
+        dataframe of the identities that have been selected to be excluded (not currently used but included for consistency with other functions)
+
+    dfRole : pd.DataFrame
+        dataframe of the idealised role information
+
+    uidAttr : str
+        Unique identifier attribute name (corresponds to column name in dfID* dataframes)
+
+    roleAttr : str
+        The name of the identity attribute which classifies the identities into roles
+
+    plotRelations : boolean
+        If True then add meshing to the plot based on the role information in the identities
+
+    colourDict : dict
+        Standard colour dictionary for all elements
     """
 
     for role in sorted(dfRole[roleAttr].unique()):
@@ -600,14 +622,36 @@ def plot_roles(
 
     # if there is corresponding role information
     if plotRelations:
-        for idRoles in dfIDIncl[roleAttr].unique():
+        # get only the role attributes which are described as strings. If the value is a list this is a cluster with mixed attributes so don't include in the meshing
+        roleAttrOnIds = list(
+            set(
+                sum(
+                    dfIDIncl[roleAttr].apply(
+                        lambda x: [x] if type(x) is not list else x
+                    ),
+                    [],
+                )
+            )
+        )
+        for idRoles in roleAttrOnIds:
 
+            """
             fig = mesh_layers(
                 fig, dfIDIncl[dfIDIncl[roleAttr] == idRoles], colourDict, idRoles
             )
+            """
+            dfRole = dfIDIncl[[idRoles in dfid for dfid in dfIDIncl[roleAttr]]]
 
-            # Don't include the legend of the line plots
-            fig.data[-1].showlegend = False
+            # There has to be a minimum of 4 points for the triangulation to work
+            if len(dfRole) < 4:
+                continue
+
+            fig = mesh_layers(
+                fig,
+                dfRole,
+                colourDict,
+                idRoles,
+            )
 
     return fig
 
@@ -621,10 +665,11 @@ def mesh_layers(fig, df, colourDict, label):
     pos = df[["__Dim0", "__Dim1", "__Dim2"]]
     midPos = np.median(pos, 0)
     diff = np.sum((pos - midPos) ** 2, 1)
-    diffDesc = diff.describe()
-    q3 = diffDesc.loc["75%"]
-    iqr = q3 - diffDesc.loc["25%"]
-    rng = iqr * 1.5 + q3
+    rng = outlier_calculation(diff)
+
+    # specify the legend group and name. NOTE plotly does not support this for mesh3d for some unknown reason??? https://community.plotly.com/t/how-to-name-axis-and-show-legend-in-mesh3d-and-surface-3d-plots/1819
+    legendgroup = f"Mesh: {label}"
+    name = f"Mesh: {label}"
 
     # Highlight the outlier points (only if there are any)
     if not np.all((diff < rng) == True):
@@ -638,8 +683,9 @@ def mesh_layers(fig, df, colourDict, label):
             alphahull=0,
             hoverlabel=dict(namelength=0),
             hovertemplate=f"<b>{label} Outliers</b><br>",
-            legendgroup=label,
-            name=label,
+            legendgroup=legendgroup,
+            # name=label,
+            showlegend=False,
         )
 
     # highlight the points which are within the normal range and plot as slighly darker/core identities
@@ -652,8 +698,9 @@ def mesh_layers(fig, df, colourDict, label):
         alphahull=0,
         hoverlabel=dict(namelength=0),
         hovertemplate=f"<b>{label} Core</b><br>",
-        legendgroup=f"Mesh: {label}",
-        name=f"Mesh: {label}",
+        legendgroup=legendgroup,
+        name=label,
+        showlegend=True,
     )
 
     return fig

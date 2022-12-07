@@ -11,6 +11,7 @@ def pageone_layout(
     marks,
     dtformat,
     dropDownOpt,
+    dropDownList,
     dropDownStart,
     sliderValue,
 ):
@@ -44,12 +45,14 @@ def pageone_layout(
                                                 in dfID.columns,
                                                 value=False,
                                             ),
-                                            html.Div(id="toggle-timeseries-out"),
+                                            html.Div(
+                                                id="toggle-timeseries-out",
+                                            ),
                                         ],
                                         style={
-                                            "margin-left": "15px",
-                                            "margin-top": "5x",
                                             "display": "inline-block",
+                                            "marginRight": "10px",
+                                            "marginLeft": "10px",
                                         },
                                     ),
                                     # toggle, hover info
@@ -59,12 +62,14 @@ def pageone_layout(
                                                 id="toggle-hoverinfo",
                                                 value=False,
                                             ),
-                                            html.Div(id="toggle-hoverinfo-out"),
+                                            html.Div(
+                                                id="toggle-hoverinfo-out",
+                                            ),
                                         ],
                                         style={
-                                            "margin-left": "15px",
-                                            "margin-top": "5px",
                                             "display": "inline-block",
+                                            "marginRight": "10px",
+                                            "marginLeft": "10px",
                                         },
                                     ),
                                     # toggle, role surface
@@ -74,15 +79,42 @@ def pageone_layout(
                                                 id="toggle-rolesurface",
                                                 value=False,
                                             ),
-                                            html.Div(id="toggle-rolesurface-out"),
+                                            html.Div(
+                                                id="toggle-rolesurface-out",
+                                            ),
                                         ],
                                         style={
-                                            "margin-left": "15px",
-                                            "margin-top": "5px",
                                             "display": "inline-block",
+                                            "marginRight": "10px",
+                                            "marginLeft": "10px",
                                         },
                                     ),
-                                ]
+                                    # mesh attribute selection
+                                    html.Div(
+                                        [
+                                            dcc.Dropdown(
+                                                dropDownList,
+                                                None,  # select an attribute with the fewest variables initially
+                                                id="selectedMeshAttr",
+                                                placeholder="Select mesh attribute",
+                                                multi=False,  # for selecting multiple values set to true
+                                                clearable=False,
+                                                disabled=True,
+                                            ),
+                                        ],
+                                        style={
+                                            "display": "inline-block",
+                                            "marginRight": "10px",
+                                            "marginLeft": "10px",
+                                            "width": 300,
+                                        },
+                                    ),
+                                ],
+                                style={
+                                    # "display": "inline-block",
+                                    "marginRight": "10px",
+                                    "marginLeft": "10px",
+                                },
                             ),
                         ],
                         style={
@@ -95,19 +127,15 @@ def pageone_layout(
                     html.Div(
                         [
                             # html.Label("Clustering"),
-                            html.Div(
-                                [
-                                    dcc.Slider(
-                                        -0.5,
-                                        sliderValue,
-                                        step=0.5,
-                                        value=-0.5,
-                                        id="slider-rounding",
-                                        disabled=False,
-                                        marks=None,
-                                        vertical=True,
-                                    ),
-                                ]
+                            dcc.Slider(
+                                -0.5,
+                                sliderValue,
+                                step=0.5,
+                                value=-0.5,
+                                id="slider-rounding",
+                                disabled=False,
+                                marks=None,
+                                vertical=True,
                             ),
                             # html.Div(id='slider-output'),
                         ],
@@ -190,7 +218,7 @@ def pageone_layout(
                                     1.5: "Loose",
                                     2: "Very loose",
                                 },
-                                included=False
+                                included=False,
                             ),
                             # report2 button
                             html.Button(
