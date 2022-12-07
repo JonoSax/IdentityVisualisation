@@ -75,9 +75,9 @@ def createInteractivePlot(app: Dash, dataModel: object):
         # marks = {n: {'label': d} for n, d in zip(dttimes, dtformat)}
 
     # create the drop down information
-    attrArray = np.array(
-        [[r, len(dfID[r].unique())] for r in hover_data if r.find("DateTime") == -1]
-    )
+    attrList = [r for r in hover_data if r.lower().find("datetime") == -1]
+
+    attrArray = np.array([[r, len(dfID[r].unique())] for r in attrList])
     dropDownOpt = [
         f"{attr}: {idNo} elements"
         for attr, idNo in attrArray
@@ -103,6 +103,7 @@ def createInteractivePlot(app: Dash, dataModel: object):
         marks,
         dtformat,
         dropDownOpt,
+        attrList,
         dropDownStart,
         sliderValue,
     )
@@ -133,7 +134,7 @@ def createInteractivePlot(app: Dash, dataModel: object):
     Input("selectableDropDownInclude", "value"),
     Input("selectableIdentities", "value"),
     State("uidAttr", "data"),
-    State("roleAttr", "data"),
+    Input("selectedMeshAttr", "value"),
     State("hover_data", "data"),
     Input("toggle-timeseries", "value"),
     Input("toggle-hoverinfo", "value"),
@@ -249,7 +250,7 @@ def update_graph(
         )
 
     # ---------- Plot the role data ----------
-    if rolesurfaceToggle:
+    if rolesurfaceToggle and roleAttr is not None:
 
         fig = plot_roles(
             fig,
@@ -703,13 +704,14 @@ def save_file(click, table_info, filename, hover_data, uiddf):
     Output("slider-rounding", "disabled"),
     Output("slider-clustering", "disabled"),
     Output("slider-meshtime", "disabled"),
+    Output("selectedMeshAttr", "disabled"),
     Input("toggle-timeseries", "value"),
     Input("toggle-hoverinfo", "value"),
     Input("toggle-rolesurface", "value"),
-    State("roleAttr", "data"),
+    Input("selectedMeshAttr", "value"),
     Input("slider-rounding", "value"),
 )
-def update_output(
+def update_controlsoutput(
     toggleTimeSeriesValue,
     toggleHoverinfoValue,
     roleSurfaceValue,
@@ -724,12 +726,13 @@ def update_output(
     # default values of all sliders/toggles
     toggleTimeSeries = "Date of extract"
     toggleHoverinfo = "Hoverinfo disabled"
-    roleSurfaceInfo = "No role overlay"
+    roleSurfaceInfo = "No mesh overlay"
     roleSurfaceInfoDisabled = False
     sliderDateDisabled = False
     sliderRoundDisabled = False
     sliderClusterDisabled = False
     sliderMeshTimeDisabled = True
+    dropDownMeshDisabled = True
 
     """
     If displaying time tracking data then:
@@ -765,11 +768,9 @@ def update_output(
 
     If there is no role information (determined by whether a role joining key exists) then the role surface viewer is disabled (and no role information will be displayed).
     """
-    if roleSurfaceValue and roleAttr is not None:
-        roleSurfaceInfo = "Role overlaying"
-    elif roleAttr is None:
-        roleSurfaceInfo = "No roles"
-        roleSurfaceInfoDisabled = True
+    if roleSurfaceValue and not toggleTimeSeriesValue:
+        roleSurfaceInfo = "Mesh overlaying"
+        dropDownMeshDisabled = False
 
     return (
         toggleTimeSeries,
@@ -780,6 +781,7 @@ def update_output(
         sliderRoundDisabled,
         sliderClusterDisabled,
         sliderMeshTimeDisabled,
+        dropDownMeshDisabled,
     )
 
 
@@ -796,7 +798,7 @@ def update_output(
     Input("slider-clustering", "value"),
     Input("toggle-timeseries", "value"),
 )
-def update_buttons(sliderRounding, sliderClustering, trackingToggle):
+def update_report_buttons(sliderRounding, sliderClustering, trackingToggle):
 
     """
     Update the report buttons
