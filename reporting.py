@@ -242,24 +242,27 @@ class Metrics:
             groupAttrDesc = self.dfDistances.groupby(outType)[attr].describe()
 
             for ele in groupAttrDesc.index:
-                # std = groupAttrDesc.loc[ele]["std"]
-                # mean = groupAttrDesc.loc[ele]["mean"]
 
                 # if there are less than 5 identities (arbituary number) then don't include them in outlier calculations because the statistics will be meaningless
                 if groupAttrDesc.loc[ele]["count"] < 5:
                     continue
 
+                mean, std = groupAttrDesc.loc[ele][["mean", "std"]]
                 q1, q3 = groupAttrDesc.loc[ele][["25%", "75%"]]
                 iqr = q3 - q1
 
                 # 3 standard deviations from the mean of distances
-                # outliers = self.dfDistances[self.dfDistances[attr] > (mean + std*3)]
+                outliers = self.dfDistances[
+                    self.dfDistances[attr] > (mean + std * 3 * self.errorTol)
+                ]
 
                 # 1.5 x iqr beyond the q3
+                """
                 outliers = self.dfDistances[
                     (self.dfDistances[attr] > (iqr * 1.5 * self.errorTol + q3))
                     & (self.dfDistances[outType] == ele)
                 ]
+                """
 
                 outliers["type"] = outType
                 if type(outlierdf) is not pd.DataFrame:
@@ -359,8 +362,10 @@ class Metrics:
         dfMod = self.plottedIdentities[
             self.plottedIdentities["_DateTime"] == self.specificTime
         ].reset_index(drop=True)
-        dfPos = clusterData(dfMod, self.key, self.attribute, self.sliderRound, aggDict)
-        dfPos = dfPos.set_index("_ClusterID")
+        dfPos = cluster_elements(
+            dfMod, self.key, self.attribute, self.sliderRound, aggDict
+        )
+        dfPos = dfPos.set_index("ClusterID")
 
         # set the object attributes
         self.dfClusters, _ = getClusterLimit(dfPos, self.attribute, self.sliderCluster)
