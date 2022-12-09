@@ -2,6 +2,7 @@ import os
 from datetime import datetime
 from glob import glob
 from hashlib import sha256
+from time import time
 
 import numpy as np
 import pandas as pd
@@ -111,21 +112,34 @@ class DataModel(object):
 
     def processIdentities(self):
 
+        """
+        Process the identity data to meet the appropriate format. ATM no processing is required if presented in dataframe format
+        """
+
+        print("DataModel.processIdentities begun")
+        st = time()
         self.identityData = self.rawIdentityData
+        self.identityData["_DateTime"] = self.identityData["_DateTime"].astype(int)
+
+        end = np.round(time() - st, 2)
+        print(f"DataModel.processIdentities finished in {end} secs")
 
     def processPermissions(self):
 
-        # this is joining the identity and permission data as only the identities in the
-        # identityData are INCLUDED in the permission data.
-        # If the identity is present for any time extract in the identity data then it
-        # will be included from all permission data
+        """
+        this is joining the identity and permission data as only the identities in the
+        identityData are INCLUDED in the permission data.
+        If the identity is present for any time extract in the identity data then it
+        will be included from all permission data
+        """
+
         """
         pStore = pStore[pStore[self.joinKeys["permission"]].isin(idSelect)]
         pStore[pivotSelect] = (
             pStore[self.joinKeys["permission"]] + f"_{date}"
         )  # this is only needed for the pivot table
         """
-        # pStore["_DateTime"] = f"_{date}"
+        st = time()
 
         # perform a pivot of the raw csv data to create a sparse matrix of occurence
         headers = list(self.rawPermissionData.columns.unique())
@@ -144,11 +158,16 @@ class DataModel(object):
         self.processingType = self.processType("Identity")
         self.permissionData = pivot
 
+        end = np.round(time() - st, 2)
+        print(f"DataModel.processPermissions finished in {end} secs")
+
     def processRoles(self):
 
         """
         Take the role data and process into the necesary array for calculations
         """
+
+        st = time()
 
         if len(self.rawRoleData) == 0:
             return
@@ -176,16 +195,24 @@ class DataModel(object):
         # add the role division information and fake datetime to the permission array (when it is processes)
         self.categories = np.r_[self.categories, np.array([*pivot.index.to_numpy()])]
 
+        end = np.round(time() - st, 2)
+        print(f"DataModel.processRoles finished in {end} secs")
+
     def processPrivilege(self):
 
         """
         Take the pivileged permission data and process it
         """
 
+        st = time()
+
         if len(self.privilegedData) == 0:
             return
 
         self.privilegedData = self.privilegedData.set_index("Permission")
+
+        end = np.round(time() - st, 2)
+        print(f"DataModel.processPrivilege finished in {end} secs")
 
     def processManager(self):
 
@@ -193,10 +220,15 @@ class DataModel(object):
         Take the list of managers inputted and return only the identities which have managers
         """
 
+        st = time()
+
         if self.managerIDs is not None:
             self.identityData = self.identityData[
                 self.identityData[self.joinKeys["managerkey"]].isin(self.managerIDs)
             ]
+
+        end = np.round(time() - st, 2)
+        print(f"DataModel.processManager finished in {end} secs")
 
     def hashData(self, len=8):
 
@@ -205,6 +237,8 @@ class DataModel(object):
 
         Use raw not processed to allow for change in the processing of the information
         """
+
+        st = time()
 
         self.hashValue = sha256(
             np.r_[
@@ -215,6 +249,9 @@ class DataModel(object):
             ]
         ).hexdigest()[-len:]
 
+        end = np.round(time() - st, 2)
+        print(f"DataModel.hashData finished in {end} secs")
+
     def processData(self, forceRecalculate=True, dims=3):
 
         """
@@ -223,10 +260,10 @@ class DataModel(object):
         Inputs
         -------
         dims : int, default = 3
-            Dimensionality reduction of the data (must be either 2 or 3D)
+            Dimensionality  reduction of the data (must be either 2 or 3D)
 
         recalculate : boolean, default = True
-            If True always calculate, else only calculate if there are no relevant files
+            If True always calculate,   else only calculate if there are no relevant files
 
         Outputs
         ------
@@ -237,6 +274,8 @@ class DataModel(object):
             The dimensionally reduce data positions are saved in the self.dict['results'] folder
 
         """
+
+        st = time()
 
         if dims != 2 and dims != 3:
             print("     Impossible dimensions inputted")
@@ -270,14 +309,18 @@ class DataModel(object):
 
         self.mergeIdentityData(mdsPositions, keep_misssing_ids=False)
 
+        end = np.round(time() - st, 2)
+        print(f"DataModel.processData finished in {end} secs")
+
     def calculateMDS(self, method="isomap"):
 
-        print("     Calculating similarity matrix")
-        # the rawPermissionData MUST be a pandas dataframe with the columns being the permissions
-        # and the rows being the identities
+        """
+        Calculate the similarity of the permission data, dimensionally reduce it and process
+        """
 
-        # prime the mds calculation?
-        # mdsCalculation(self.permissionData[:10], verbose=0)
+        print("     Calculating similarity matrix")
+
+        st = time()
 
         # apply the impact of privileged permissions
         pos = mdsCalculation(
@@ -301,6 +344,9 @@ class DataModel(object):
 
         entitleExtract["Sum of permissions"] = self.permissionData.sum(1).values
 
+        end = np.round(time() - st, 2)
+        print(f"DataModel.calculateMDS finished in {end} secs")
+
         return entitleExtract
 
     def mergeIdentityData(self, mdsPositions, keep_misssing_ids=False):
@@ -315,6 +361,8 @@ class DataModel(object):
         keep_missing_ids : Boolean
             Check if there are ids in the permission data which do not exist in the identity data. If set to True, keep these data and add in "No ID data" to their attributes. If False (default) remove from further processing.
         """
+
+        st = time()
 
         # merge all identity information if available, remove unnecessary columns
         if self.identityData is not None:
@@ -389,3 +437,6 @@ class DataModel(object):
         ].astype(float)
 
         self.mdsResults = posdf
+
+        end = np.round(time() - st, 2)
+        print(f"DataModel.mergeIdentityData finished in {end} secs")
