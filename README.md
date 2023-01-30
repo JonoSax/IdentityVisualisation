@@ -1,11 +1,10 @@
-PoSE: Permissions of the System Environment
-Identity Visualiser (doesn't sound as wanky)
+**Identity Visualiser**
 
-We want the clients PoSE so we visualise, explain and recommend actions to impove their system integrity.
+We want to visualise the structures of identities in a client environment. This allows identity managers and business owners to interpret their digital access landscape based on the important criterias such as relative access, groupings and temporal changes.
 
 This environment contains: 
 
-* MultiDimAttributeAnalysis.py: This is the script which takes in inputs from the excel file (whatever is used for entitlement analysis), caluculates the similarity matrix and visualises the results.
+* app.py: run this to launch the data platform
 
 * requirements.txt: contains the libraries required for this to be installed.
 
@@ -21,35 +20,23 @@ This logically how it works:
 
     --- Data processing ---
 
-    1 - Read in the relevant worksheet from the specified workbook
-    2 - Extract the attribute headings in the data 
-    3 - Assess whether the information contained in this workbook has been calculated before or if it is new
-        a - Identities, attribute is present anywhere 
-        b - Attributes, the exact combination of attributes are present
-    
-    If new data:
-        4 - Extract the data, calculate the multidimensional scaling and save the results as a csv with the naming convention
-            {Identity/Attribute sheet}_{Dimensional analysis}_{Attributes present in sheet}_{Time stamp (yymmdd_hhmmss)}
+    1 - Read in the identity, access, role, privileged access data (inherits the DataModel object).
+    2 - Transform the data inputs into a standard format for processing
+    3 - Assess whether the information contained in this workbook has been calculated before or if it is new.
+
+    If new access data:
+        4 - Extract the data, calculate the multidimensional scaling and save the results as a csv. This will contain the identity (based on the UID), their dimensionally reduced location, the date and time when this data was extracted and the number of accesses they have. The file format is identified by the hash of the access, role and privileged data (not identity data as the individuals in this data set just controls what accesses to load and can change without affecting the model results).
     
     Else:
-        4 - return the relevant link to the pre-calculated mds positional values
+        4 - load the relevant data file
     
-    --- Visualisation ---
-
-    5 - Check if a plot from the mds positional values exists
-
-    If new plot:
-        6a - plot the data according to the inputted variables (dimensions, attribute clustering)
-        6b - save the plot as an html file for re-loading and distribution
-
-    Else:
-        6 - Load the relevant plot
+    
 
 TODO:
 
-    - Create unit testing and validation 
+    - Create unit testing and validation (have strated this)
 
-    - See how any given element corresponds with other elements
+    - See how any given element corresponds with other elements (can be achieved through the selectable meshing)
 
     - Identify which permissions are assigned manually or detected?
         - Need to determine if that is something which is standard info or not? 
