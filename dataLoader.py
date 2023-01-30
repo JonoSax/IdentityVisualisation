@@ -296,16 +296,10 @@ def CsvData(forceRecalculate=False):
 if __name__ == "__main__":
 
     print("Loading....")
-    args = sys.argv
-    if any(["LaunchExcel" in a for a in args]):
-        workbook, worksheet, dims, identityID, permissionID = args = sys.argv[2:]
-        excelData(
-            str(workbook), str(worksheet), int(dims), str(identityID), str(permissionID)
-        )
-    else:
-        workbook = "C:/Users/ResheJ/Downloads/WorkBook-Hashedv1.xlsm"
-        workbook = "WorkBook-FakeData.xlsm"
-        worksheet = "SimilarityScoreIdentities"
-        dims = 3
-        CsvData()
-        # excelData(workbook, worksheet, dims, "Username", "Identity")
+
+    workbook = "C:/Users/ResheJ/Downloads/WorkBook-Hashedv1.xlsm"
+    workbook = "WorkBook-FakeData.xlsm"
+    worksheet = "SimilarityScoreIdentities"
+    dims = 3
+    CsvData()
+    # excelData(workbook, worksheet, dims, "Username", "Identity")
