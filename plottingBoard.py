@@ -356,19 +356,6 @@ def update_graph(
     if figLayout is not None:
         fig.layout.scene.camera = figLayout.get("scene.camera")
 
-    # add logo
-    fig.add_layout_image(
-        source="assets/PwC_fl_c.png",
-        xref="paper",
-        yref="paper",
-        x=0.1,
-        y=0.1,
-        sizex=0.35,
-        sizey=0.35,
-        xanchor="right",
-        yanchor="top",
-    )
-
     print("     Plot updated\n")
     return fig, dfIDIncl.to_json(orient="split")
 
